@@ -7,7 +7,24 @@ export interface CoachNote {
   body: string;
 }
 
-function settingProblems(nodes: PlacedNode[]): string[] {
+function httpReachable(nodes: PlacedNode[], links: Link[], startId: string): Set<string> {
+  const seen = new Set<string>();
+  const found = new Set<string>();
+  const queue = [startId];
+  while (queue.length > 0) {
+    const id = queue.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = nodes.find((n) => n.id === id);
+    if (node) found.add(node.defId);
+    for (const link of links) {
+      if (link.from === id && link.kind === "http") queue.push(link.to);
+    }
+  }
+  return found;
+}
+
+function settingProblems(nodes: PlacedNode[], links: Link[]): string[] {
   const problems: string[] = [];
   if (nodes.some((n) => n.defId === "app" && n.config.query === "nplusone")) {
     problems.push(
@@ -17,6 +34,40 @@ function settingProblems(nodes: PlacedNode[]): string[] {
   if (nodes.some((n) => n.defId === "db" && n.config.indexed !== true)) {
     problems.push(
       "The database has no index on email, so every lookup reads the whole table. That is a table scan. Open it and turn the index on.",
+    );
+  }
+  const porch = nodes.find((n) => n.defId === "porch");
+  if (porch && porch.config.balance === "sticky") {
+    const ovens = links.filter((l) => l.from === porch.id && l.kind === "http").length;
+    problems.push(
+      ovens < 2
+        ? "The porch sends every guest to a single oven. Place a second oven, cable the porch to it with HTTP, and set the porch to share the line."
+        : "The porch is still sending everyone to the first oven. Open it and choose share the line.",
+    );
+  }
+  if (nodes.some((n) => n.config.freshness === "stale")) {
+    problems.push(
+      "The echo pond is a moment behind the pen. Open it and choose read your own ink, or the writer cannot see the sentence they just wrote.",
+    );
+  }
+  if (nodes.some((n) => n.config.ttl === "flush")) {
+    problems.push(
+      "Every lantern goes dark on the same minute. When the rush returns, the cache is empty all at once. Open it and let each jar expire on its own.",
+    );
+  }
+  if (nodes.some((n) => n.defId === "cdn" && n.config.cache === "none")) {
+    problems.push(
+      "The postcard loft is reprinting every card. Open it and keep a public copy, or the little press will catch fire.",
+    );
+  }
+  if (nodes.some((n) => n.defId === "gate" && n.config.limit === "open")) {
+    problems.push(
+      "The garden gate is wide open, so the pigeons walk in with the people. Open the gate and set the latch to be fair to people and rude to pigeons.",
+    );
+  }
+  if (nodes.some((n) => n.config.sync === "dual")) {
+    problems.push(
+      "The booth writes the ledger and the card catalog as two separate hopes. Open the catalog and let the ledger publish through an outbox, so the drawers cannot miss a book.",
     );
   }
   return problems;
@@ -44,7 +95,7 @@ export function explain(input: {
   const node = (id: string) => input.nodes.find((n) => n.id === id);
   const needsSql = input.level.cables.includes("sql");
 
-  const settingNotes = settingProblems(input.nodes);
+  const settingNotes = settingProblems(input.nodes, input.links);
   if (!users || out(users.id, "http").length === 0) {
     const hasPiece = input.nodes.some((n) => getComponent(n.defId).placeable);
     const extra = settingNotes.length ? ` ${settingNotes.join(" ")}` : "";
@@ -66,6 +117,19 @@ export function explain(input: {
     };
   }
 
+  const mustHttp = input.level.mustHttp ?? [];
+  if (mustHttp.length > 0) {
+    const found = httpReachable(input.nodes, input.links, users.id);
+    const missing = mustHttp.filter((id) => !found.has(id)).map((id) => getComponent(id).name);
+    if (missing.length > 0) {
+      return {
+        tone: "bad",
+        title: "The path skips a building",
+        body: `People's clicks still never reach ${missing.join(" and ")}. Pick HTTP, then drag the piece closer to the crowd onto the piece farther along. The cable has to point that way.`,
+      };
+    }
+  }
+
   if (needsSql) {
     const apps = input.nodes.filter((n) => getComponent(n.defId).requiresStore);
     const lonely = apps.find(
@@ -81,7 +145,25 @@ export function explain(input: {
         title: "Nothing is remembering signups",
         body: hasHttpOnly
           ? `HTTP cannot ask a database for rows. Pick the SQL cable, then drag the app onto Postgres.${settingNotes.length ? ` ${settingNotes.join(" ")}` : ""}`
-          : `The app can answer a click, but it has nowhere to save a person. Pick the SQL cable, then drag the app onto the database.${settingNotes.length ? ` ${settingNotes.join(" ")}` : ""}`,
+          : `The stall can greet a visitor, but it has nowhere to write. Pick the SQL cable, then drag it onto the notebook.${settingNotes.length ? ` ${settingNotes.join(" ")}` : ""}`,
+      };
+    }
+  }
+
+  const mustStores = input.level.mustStores ?? [];
+  if (mustStores.length > 0) {
+    const apps = input.nodes.filter((n) => getComponent(n.defId).requiresStore);
+    const missing = mustStores.filter(
+      (defId) =>
+        !apps.some((app) =>
+          out(app.id, "sql").some((id) => node(id)?.defId === defId),
+        ),
+    );
+    if (missing.length > 0) {
+      return {
+        tone: "bad",
+        title: "One book is not the whole library",
+        body: `SQL-cable the booth to ${missing.map((id) => getComponent(id).name).join(" and ")}. A catalog that never hears about new books is a second, wrong library.`,
       };
     }
   }
@@ -90,7 +172,7 @@ export function explain(input: {
   if (problems.length > 0) {
     return {
       tone: "bad",
-      title: problems.length > 1 ? "Two habits are breaking this" : "This setting will not hold",
+      title: problems.length > 1 ? "A few habits are breaking this" : "This setting will not hold",
       body: problems.join(" "),
     };
   }

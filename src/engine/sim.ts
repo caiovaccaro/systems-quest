@@ -32,7 +32,9 @@ interface Req {
   history: string[];
   parentId: number | null;
   qLeft: number;
+  waitLimit: number;
   holding: boolean;
+  returning: boolean;
   visual: boolean;
   ok: boolean;
 }
@@ -173,6 +175,13 @@ export class Simulation {
   private spawnHttp(): void {
     const users = this.findSource();
     if (!users) return;
+    if (!this.covers()) {
+      this.flags.unwired += 1;
+      this.failStat(users, 400);
+      this.metrics.push(this.t, 400, false);
+      this.totalFail += 1;
+      return;
+    }
     const dests = this.targets(users.placed.id, "http");
     if (dests.length === 0) {
       this.flags.unwired += 1;
@@ -205,7 +214,9 @@ export class Simulation {
       history: [],
       parentId: parent,
       qLeft: 0,
+      waitLimit: WAIT_TIMEOUT,
       holding: false,
+      returning: false,
       visual,
       ok: true,
     };
@@ -241,6 +252,14 @@ export class Simulation {
       return;
     }
 
+    if (
+      req.returning &&
+      (def.machine === "forward" || def.machine === "cdn" || def.machine === "queue" || def.machine === "gate")
+    ) {
+      this.sendBack(req);
+      return;
+    }
+
     if (node.crashed) {
       this.fail(req, node, "down");
       return;
@@ -251,6 +270,16 @@ export class Simulation {
       this.fail(req, node, "protocol");
       return;
     }
+
+    if (def.machine === "gate" && node.placed.config.limit === "fair" && this.trafficMult > 1.25) {
+      const keep = 1.25 / this.trafficMult;
+      if (this.rng.next() > keep) {
+        this.dropReq(req);
+        return;
+      }
+    }
+
+    if (def.machine === "queue") req.waitLimit = 8;
 
     if (node.queue.length >= def.queueSize) {
       this.flags.saturated += 1;
@@ -285,7 +314,7 @@ export class Simulation {
       const still: Req[] = [];
       for (const req of node.queue) {
         req.waited += dt;
-        if (req.waited > WAIT_TIMEOUT) {
+        if (req.waited > req.waitLimit) {
           if (def.role === "store") this.flags.poolTimeouts += 1;
           else this.flags.saturated += 1;
           this.fail(req, node, def.role === "store" ? "pool" : "timeout");
@@ -335,11 +364,23 @@ export class Simulation {
     node.concurrent = Math.max(0, node.concurrent - 1);
     node.outCount += 1;
 
+    if (req.returning) {
+      this.sendBack(req);
+      return;
+    }
+
     if (req.kind === "query") {
       const parent = this.parentOf.get(req.parentId!);
       const backTo = parent?.atId ?? req.history[req.history.length - 2];
       if (!backTo) return this.kill(req, false);
       this.launch(req, req.atId, backTo, "query");
+      return;
+    }
+
+    if (def.machine === "cdn" || def.machine === "forward" || def.machine === "queue" || def.machine === "gate") {
+      const absorb = def.machine === "cdn" && node.placed.config.cache === "public" && this.rng.next() < 0.9;
+      if (!absorb && this.forward(req, node)) return;
+      this.sendBack(req);
       return;
     }
 
@@ -352,6 +393,14 @@ export class Simulation {
         this.flags.nostore += 1;
         this.fail(req, node, "nostore");
         return;
+      }
+      const must = this.level.mustStores ?? [];
+      for (const defId of must) {
+        if (!stores.some((id) => this.nodes.get(id)?.defId === defId)) {
+          this.flags.nostore += 1;
+          this.fail(req, node, "nostore");
+          return;
+        }
       }
       const nPlus = node.placed.config.query === "nplusone";
       if (nPlus) this.flags.n1 = true;
@@ -390,11 +439,12 @@ export class Simulation {
       return;
     }
     req.history.pop();
-    this.launch(req, req.atId, prev, "http");
+    this.launch(req, req.atId, prev, "http", true);
   }
 
-  private launch(req: Req, from: string, to: string, kind: Kind): void {
+  private launch(req: Req, from: string, to: string, kind: Kind, back = false): void {
     req.kind = kind;
+    req.returning = back;
     req.phase = "move";
     req.fromId = from;
     req.toId = to;
@@ -450,15 +500,52 @@ export class Simulation {
     this.parentOf.delete(req.id);
   }
 
+  private forward(req: Req, node: RuntimeNode): boolean {
+    const backs = this.targets(node.placed.id, "http").filter((id) => {
+      const n = this.nodes.get(id);
+      return n && getComponent(n.defId).role === "compute";
+    });
+    if (backs.length === 0) return false;
+    const sticky = node.placed.config.balance === "sticky";
+    const dest = sticky ? backs[0]! : this.rng.pick(backs);
+    this.launch(req, node.placed.id, dest, "http");
+    return true;
+  }
+
+  private covers(): boolean {
+    const need = this.level.mustHttp;
+    if (!need || need.length === 0) return true;
+    const users = this.findSource();
+    if (!users) return false;
+    const seen = new Set<string>();
+    const found = new Set<string>();
+    const queue = [users.placed.id];
+    while (queue.length > 0) {
+      const id = queue.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const node = this.nodes.get(id);
+      if (node) found.add(node.defId);
+      for (const hop of this.targets(id, "http")) queue.push(hop);
+    }
+    return need.every((id) => found.has(id));
+  }
+
   private procTime(node: RuntimeNode, _req: Req): number {
     const def = getComponent(node.defId);
     if (def.role === "store") {
+      const cfg = node.placed.config;
+      if (cfg.freshness === "stale") return 0.4;
+      if (cfg.sync === "dual") return 0.36;
+      if (cfg.ttl === "flush" && this.trafficMult > 1.15) return 0.32;
+      if (cfg.freshness === "current" || cfg.sync === "outbox" || cfg.ttl === "jitter") return 0.012;
       return this.isIndexed(node) ? 0.012 : 0.17;
     }
     return def.baseLatencyMs / 1000;
   }
 
   private isIndexed(node: RuntimeNode): boolean {
+    if (!("indexed" in node.placed.config)) return true;
     return node.placed.config.indexed === true;
   }
 
@@ -483,7 +570,7 @@ export class Simulation {
       const connSat =
         def.role === "store" ? node.conns / Math.max(1, this.poolSize(node)) : 0;
       node.sat = Math.max(0, Math.min(1, Math.max(tokenSat, qSat, connSat)));
-      if (node.sat > 0.98 && this.t > 8) node.crashed = def.role !== "source";
+      if (qSat > 0.9 && this.t > 8) node.crashed = def.role !== "source";
     }
   }
 

@@ -1,3 +1,4 @@
+import { sfx } from "../audio/sfx";
 import { getCable, isCable } from "../catalog/cables";
 import { defaultConfig, getComponent } from "../catalog/components";
 import { SIM_STEP } from "../engine/const";
@@ -5,6 +6,7 @@ import { nid, resetIds } from "../engine/ids";
 import { Simulation } from "../engine/sim";
 import type { HudSnapshot, LevelDef, Link, LinkKind, NodeView, PlacedNode } from "../engine/types";
 import { CAMPAIGN, getLevel } from "../levels/campaign";
+import { cssColor } from "../levels/island";
 import { iconURL } from "../render/icons";
 import { Board } from "../render/Board";
 import { explain } from "./coach";
@@ -58,6 +60,7 @@ export class Game {
     const canvas = app.querySelector("#board");
     if (!(canvas instanceof HTMLCanvasElement)) throw new Error("canvas");
     this.board = new Board(canvas);
+    this.board.onImpact = () => sfx.drop();
     this.bind();
     requestAnimationFrame((t) => this.loop(t));
   }
@@ -67,7 +70,10 @@ export class Game {
     window.addEventListener("keydown", (e) => this.onKey(e));
     window.addEventListener("pointermove", (e) => this.onMove(e));
     window.addEventListener("pointerup", (e) => this.onUp(e));
-    this.ui.root.addEventListener("pointerdown", (e) => this.onDown(e));
+    this.ui.root.addEventListener("pointerdown", (e) => {
+      sfx.unlock();
+      this.onDown(e);
+    });
     this.ui.root.addEventListener("click", (e) => this.onClick(e));
     this.ui.root.addEventListener("change", (e) => this.onChange(e));
     this.ui.root.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -149,6 +155,7 @@ export class Game {
     const tool = t.closest("[data-tool]")?.getAttribute("data-tool");
     if (tool) {
       if (isCable(tool)) {
+        sfx.tick();
         this.cableTool = this.cableTool === tool ? "" : tool;
         this.tool = "";
         this.trayDrag = { id: tool, sx: e.clientX, sy: e.clientY, moved: false };
@@ -201,7 +208,10 @@ export class Game {
     }
     if (this.pieceDrag) {
       if (Math.hypot(e.clientX - this.pieceDrag.sx, e.clientY - this.pieceDrag.sy) > 6) {
-        if (!this.pieceDrag.moved) this.board.beginDrag(this.pieceDrag.id);
+        if (!this.pieceDrag.moved) {
+          this.board.beginDrag(this.pieceDrag.id);
+          sfx.lift();
+        }
         this.pieceDrag.moved = true;
         document.body.classList.add("dragging");
       }
@@ -295,7 +305,9 @@ export class Game {
         return;
       }
       this.pushUndo();
-      this.toggleLink(drag.id, otherId, this.cableTool);
+      const plugged = this.toggleLink(drag.id, otherId, this.cableTool);
+      if (plugged === "add") sfx.plug();
+      else sfx.unplug();
       this.commit();
       return;
     }
@@ -350,6 +362,8 @@ export class Game {
     }));
     this.links = [];
     this.undo = [];
+    this.board.setScene(this.level.scene);
+    document.documentElement.style.setProperty("--bg", cssColor(this.level.scene.water));
     this.selected = this.nodes[0]?.id ?? null;
     hideModal(this.ui.modal);
     this.ui.boot.classList.add("hidden");
@@ -372,6 +386,7 @@ export class Game {
     const def = getComponent(defId);
     if (!def.placeable) return;
     if (this.cost() + def.cost > this.level.budget) {
+      sfx.no();
       renderCoach(this.ui.coach, {
         tone: "bad",
         title: "That costs too much",
@@ -393,39 +408,34 @@ export class Game {
     this.commit();
   }
 
-  private toggleLink(a: string, b: string, kind: LinkKind): void {
+  private toggleLink(a: string, b: string, kind: LinkKind): "add" | "remove" {
     const existing = this.links.find(
       (l) => (l.from === a && l.to === b) || (l.from === b && l.to === a),
     );
     if (existing) {
       if (existing.kind === kind) {
         this.links = this.links.filter((l) => l.id !== existing.id);
-      } else {
-        existing.kind = kind;
+        return "remove";
       }
-      return;
+      existing.kind = kind;
+      return "add";
     }
     const from = this.nodes.find((n) => n.id === a);
     const to = this.nodes.find((n) => n.id === b);
-    if (!from || !to) return;
-    const roleA = getComponent(from.defId).role;
-    const roleB = getComponent(to.defId).role;
-    let src = a;
-    let dst = b;
-    if (roleA === "source" || (roleA === "compute" && roleB === "store")) {
-      src = a;
-      dst = b;
-    } else if (roleB === "source" || (roleB === "compute" && roleA === "store")) {
-      src = b;
-      dst = a;
-    }
+    if (!from || !to) return "remove";
+    const tierA = getComponent(from.defId).tier;
+    const tierB = getComponent(to.defId).tier;
+    const src = tierA <= tierB ? a : b;
+    const dst = src === a ? b : a;
     this.links.push({ id: nid("link"), from: src, to: dst, kind });
+    return "add";
   }
 
   private deleteSelected(): void {
     if (this.celebrating || this.screen !== "play" || !this.selected) return;
     const node = this.nodes.find((n) => n.id === this.selected);
     if (!node || node.locked) return;
+    sfx.unplug();
     this.pushUndo();
     this.nodes = this.nodes.filter((n) => n.id !== node.id);
     this.links = this.links.filter((l) => l.from !== node.id && l.to !== node.id);
@@ -478,6 +488,7 @@ export class Game {
     if (!this.level || this.celebrating) return;
     this.celebrating = true;
     this.play = "paused";
+    sfx.win();
     this.cleared.add(this.level.id);
     saveCleared(this.cleared);
     renderSuccess(this.ui.modal, this.level, this.level.copy.pass);
@@ -565,7 +576,7 @@ export class Game {
     } else if (this.screen === "play") {
       this.drawLabels();
     }
-    this.board.render();
+    this.board.render(dt);
   };
 
   private drawLabels(): void {

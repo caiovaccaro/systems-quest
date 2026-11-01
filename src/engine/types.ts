@@ -8,6 +8,19 @@ export type Rank =
 
 export type Category = "client" | "compute" | "data" | "cache" | "queue" | "network";
 export type Role = "source" | "compute" | "store";
+/** How a piece behaves once a request arrives. */
+export type Machine = "person" | "box" | "app" | "store" | "forward" | "cdn" | "queue" | "gate";
+export type IslandShape =
+  | "block"
+  | "blob"
+  | "crescent"
+  | "twin"
+  | "pier"
+  | "atoll"
+  | "ridge"
+  | "steps"
+  | "courtyard"
+  | "lobes";
 export type Shape = "cluster" | "box" | "tower" | "cyl";
 /** How two pieces talk. People use HTTP. Apps ask databases with SQL. */
 export type LinkKind = "http" | "sql";
@@ -59,6 +72,9 @@ export interface ComponentDef {
   shape: Shape;
   placeable: boolean;
   requiresStore: boolean;
+  /** Lower tiers send traffic toward higher tiers. People are 0, stores are 3. */
+  tier: number;
+  machine: Machine;
   cost: number;
   color: number;
   maxRps: number;
@@ -96,6 +112,16 @@ export interface GlossaryItem {
   means: string;
 }
 
+export interface SceneDef {
+  place: string;
+  shape: IslandShape;
+  water: number;
+  cliff: number;
+  tileA: number;
+  tileB: number;
+  accent: number;
+}
+
 export interface LevelDef {
   id: string;
   num: number;
@@ -121,6 +147,11 @@ export interface LevelDef {
   palette: string[];
   /** Cables the player may pick for this lesson. */
   cables: LinkKind[];
+  /** HTTP path from People must visit each of these def ids. */
+  mustHttp?: string[];
+  /** A store-backed app must SQL-cable every one of these def ids. */
+  mustStores?: string[];
+  scene: SceneDef;
   preplaced: { defId: string; x: number; z: number; locked: boolean }[];
   copy: {
     pass: [string, string, string];

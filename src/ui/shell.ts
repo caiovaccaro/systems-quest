@@ -35,9 +35,9 @@ export function mountShell(app: HTMLElement): UI {
     <div id="ui">
       <div class="world-labels" id="labels"></div>
       <section class="layer boot" id="boot">
-        <div class="kicker">a small school for big systems</div>
-        <h1>Pager</h1>
-        <p>Learn system design by building it. You place the pieces. People start clicking right away. The numbers tell you whether you kept your promise.</p>
+        <div class="kicker">build the town · keep the promise</div>
+        <h1>systems_quest</h1>
+        <p>A little island of machines. Place the pieces, cable them, and watch real traffic cross the grid. The numbers tell you whether you kept your promise.</p>
         <div class="boot-actions">
           <button class="btn primary" data-act="enter">Start learning</button>
         </div>
@@ -81,7 +81,7 @@ export function renderSelect(el: HTMLElement, cleared: Set<string>): void {
   el.innerHTML = `
     <div class="select-head">
       <div>
-        <div class="kicker">lessons</div>
+        <div class="kicker">systems_quest</div>
         <h1>Start small.</h1>
       </div>
       <div class="kicker">${cleared.size} done</div>
@@ -114,6 +114,7 @@ export function renderBrief(el: HTMLElement, level: LevelDef, playing: boolean):
       <h2>${level.title}</h2>
       <p class="lead">${level.brief}</p>
       <div class="facts">
+        <div><span>The island</span><b>${level.scene.place}</b></div>
         <div><span>What you're building</span><b>${level.product}</b></div>
         <div><span>DAU · people per day</span><b>${level.dau}</b></div>
         <div><span>QPS · clicks per second</span><b>${level.qps}</b></div>

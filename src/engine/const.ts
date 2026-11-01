@@ -6,7 +6,7 @@ export const HOP_QUERY = 0.04;
 export const WAIT_TIMEOUT = 2;
 export const MAX_VISUAL_PACKETS = 140;
 export const SIM_STEP = 1 / 30;
-export const PROGRESS_KEY = "pager.cleared";
+export const PROGRESS_KEY = "systems_quest.cleared";
 
 export function gridToWorld(gx: number, gz: number): { x: number; z: number } {
   return {

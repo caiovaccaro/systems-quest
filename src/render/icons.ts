@@ -16,20 +16,31 @@ export function iconCanvas(id: string): HTMLCanvasElement {
   else if (id === "http") drawHttp(ctx);
   else if (id === "sql") drawSql(ctx);
   else drawApp(ctx);
-  const label =
-    id === "users"
-      ? "PEOPLE"
-      : id === "laptop"
-        ? "LAPTOP"
-        : id === "db"
-          ? "DATABASE"
-          : id === "http"
-            ? "HTTP"
-            : id === "sql"
-              ? "SQL"
-              : "APP";
+  const labels: Record<string, string> = {
+    users: "PEOPLE",
+    laptop: "LAPTOP",
+    db: "DATABASE",
+    http: "HTTP",
+    sql: "SQL",
+    app: "APP",
+    beacon: "BEACON",
+    porch: "PORCH",
+    oven: "OVEN",
+    booth: "BOOTH",
+    echo: "ECHO",
+    cache: "JARS",
+    cdn: "LOFT",
+    origin: "PRESS",
+    slot: "SLOT",
+    clerk: "CLERK",
+    gate: "GATE",
+    path: "PATH",
+    ledger: "LEDGER",
+    search: "CARDS",
+  };
+  const label = labels[id] ?? "PIECE";
   ctx.fillStyle = "#3d342b";
-  ctx.font = "800 26px Nunito, Trebuchet MS, sans-serif";
+  ctx.font = "800 26px Outfit, Trebuchet MS, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText(label, 128, 286);
   cache.set(id, canvas);
@@ -47,10 +58,10 @@ export function iconURL(id: string): string {
 function drawCard(ctx: CanvasRenderingContext2D): void {
   ctx.clearRect(0, 0, 256, 320);
   round(ctx, 18, 16, 220, 288, 36);
-  ctx.fillStyle = "#fffaf3";
+  ctx.fillStyle = "#fff8ee";
   ctx.fill();
-  ctx.lineWidth = 8;
-  ctx.strokeStyle = "#efd8c4";
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = "#243038";
   ctx.stroke();
 }
 
@@ -127,7 +138,7 @@ function drawLaptop(ctx: CanvasRenderingContext2D): void {
   round(ctx, 0, 0, 42, 36, 4);
   ctx.fill();
   ctx.fillStyle = "#3d342b";
-  ctx.font = "700 12px Nunito, sans-serif";
+  ctx.font = "700 12px Outfit, sans-serif";
   ctx.fillText("it", 8, 16);
   ctx.fillText("works", 4, 30);
   ctx.restore();
@@ -178,7 +189,7 @@ function drawApp(ctx: CanvasRenderingContext2D): void {
   round(ctx, 176, 150, 28, 36, 6);
   ctx.fill();
   ctx.fillStyle = "#fffaf3";
-  ctx.font = "800 16px Nunito, sans-serif";
+  ctx.font = "800 16px Outfit, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText("ok", 190, 174);
 }
@@ -219,7 +230,7 @@ function drawDatabase(ctx: CanvasRenderingContext2D): void {
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = "#6d5b8a";
-  ctx.font = "700 11px Nunito, sans-serif";
+  ctx.font = "700 11px Outfit, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText("email A–Z", 128, 200);
 }
@@ -246,11 +257,11 @@ function drawHttp(ctx: CanvasRenderingContext2D): void {
   ctx.lineWidth = 4;
   ctx.stroke();
   ctx.fillStyle = "#e07a5f";
-  ctx.font = "800 22px Nunito, sans-serif";
+  ctx.font = "800 22px Outfit, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText("GET", 128, 140);
   ctx.fillStyle = "#6d5c4d";
-  ctx.font = "700 13px Nunito, sans-serif";
+  ctx.font = "700 13px Outfit, sans-serif";
   ctx.fillText("browser → page", 128, 198);
 }
 
@@ -276,11 +287,11 @@ function drawSql(ctx: CanvasRenderingContext2D): void {
   ctx.lineWidth = 4;
   ctx.stroke();
   ctx.fillStyle = "#8d74b8";
-  ctx.font = "800 18px Nunito, sans-serif";
+  ctx.font = "800 18px Outfit, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText("SELECT", 128, 128);
   ctx.fillStyle = "#6d5c4d";
-  ctx.font = "700 13px Nunito, sans-serif";
+  ctx.font = "700 13px Outfit, sans-serif";
   ctx.fillText("app → database", 128, 198);
 }
 
@@ -299,7 +310,7 @@ export function cableLabelCanvas(kind: "http" | "sql"): HTMLCanvasElement {
   ctx.fillStyle = fill;
   ctx.fill();
   ctx.fillStyle = "#fffaf3";
-  ctx.font = "800 28px Nunito, Trebuchet MS, sans-serif";
+  ctx.font = "800 28px Outfit, Trebuchet MS, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(kind === "http" ? "HTTP" : "SQL", 80, 32);
