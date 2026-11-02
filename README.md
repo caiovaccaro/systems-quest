@@ -6,6 +6,10 @@ There are 26 lessons, from one laptop on a stoop to services that each keep thei
 
 ## Play
 
+The live game is at <https://caiovaccaro.github.io/systems-quest/>.
+
+To run it locally:
+
 ```bash
 npm install
 npm run dev
