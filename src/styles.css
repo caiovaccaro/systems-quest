@@ -22,7 +22,11 @@ html, body, #app {
   background: var(--bg);
   color: var(--ink);
   font-family: "Source Sans 3", "Trebuchet MS", sans-serif;
-  overflow: hidden;
+}
+html, body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
 }
 #app { -webkit-touch-callout: none; }
 
@@ -38,6 +42,25 @@ body.dragging { cursor: grabbing; }
 #gameui > * { pointer-events: auto; }
 .hidden { display: none !important; }
 
+/* Latin color fonts. Phones otherwise receive an outline build that paints black. */
+@font-face {
+  font-family: Nabla;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/nabla.woff2") format("woff2");
+}
+@font-face {
+  font-family: Honk;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/honk.woff2") format("woff2");
+}
+@font-palette-values --nabla {
+  font-family: Nabla;
+  base-palette: 0;
+}
 @font-palette-values --honk-page {
   font-family: Honk;
   base-palette: 0;
@@ -57,15 +80,18 @@ h1, h2, h3, .inspect .name, .coach b {
   font-weight: 400;
   letter-spacing: 0.01em;
   line-height: 1.2;
+  /* Own layer, so a scrolling panel does not flatten the color glyphs to black. */
+  transform: translateZ(0);
 }
 .select-head h1 { font-palette: --honk-page; }
 .boot h1, .kicker.wordmark {
   font-family: Nabla, "Trebuchet MS", sans-serif;
-  font-palette: normal;
+  font-palette: --nabla;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
   line-height: 1.25;
+  transform: translateZ(0);
 }
 
 .kicker {
