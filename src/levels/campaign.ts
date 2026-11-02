@@ -1,5 +1,6 @@
-import type { IslandShape, LevelDef, Rank, SceneDef } from "../engine/types";
+import type { GlossaryItem, IslandShape, LevelDef, SceneDef } from "../engine/types";
 import { anchor } from "./island";
+import { LATE } from "./late";
 
 function crowd(shape: IslandShape): LevelDef["preplaced"] {
   const spot = anchor(shape);
@@ -95,15 +96,6 @@ const library: SceneDef = {
   tileA: 0xf0d0c8,
   tileB: 0xc9d4c4,
   accent: 0x8d74b8,
-};
-const later: SceneDef = {
-  place: "A coast you have not reached",
-  shape: "block",
-  water: 0x2f6f78,
-  cliff: 0xc46a45,
-  tileA: 0xf0d8b4,
-  tileB: 0xe4c89a,
-  accent: 0xf08a3c,
 };
 
 const emptyCopy = {
@@ -284,14 +276,6 @@ const l2: LevelDef = {
       "Twitter’s early fail whale was, in part, a database drowning in web processes that would not shut up.",
   },
 };
-
-interface Stub {
-  id: string;
-  num: number;
-  title: string;
-  rank: Rank;
-  tease: string;
-}
 
 const l3: LevelDef = {
   id: "l3",
@@ -683,56 +667,34 @@ const l10: LevelDef = {
   },
 };
 
-const stubs: Stub[] = [
-  { id: "l11", num: 11, title: "Orphan blobs", rank: "Senior", tease: "Upload then write the row. Or don't." },
-  { id: "l12", num: 12, title: "Auth is a SPOF", rank: "Senior", tease: "Sessions, JWTs, secret rotation, blast radius." },
-  { id: "l13", num: 13, title: "Celebrity key", rank: "Staff", tease: "Bad shard key. One partition eats the world." },
-  { id: "l14", num: 14, title: "Pick two", rank: "Staff", tease: "Multi-region. CAP in production, not on a slide." },
-  { id: "l15", num: 15, title: "Distributed monolith", rank: "Staff", tease: "Twelve services, one outage, twelve rotations." },
-  { id: "l16", num: 16, title: "The 30s timeout", rank: "Staff", tease: "Circuit breakers, bulkheads, backpressure." },
-  { id: "l17", num: 17, title: "You can't see it", rank: "Staff", tease: "Metrics, traces, alert fatigue, SLOs vs symptoms." },
-  { id: "l18", num: 18, title: "Exactly once, allegedly", rank: "Principal", tease: "Sagas, outbox, idempotency keys." },
-  { id: "l19", num: 19, title: "Expand / contract", rank: "Principal", tease: "Migrations that lock tables. GDPR vs backups." },
-  { id: "l20", num: 20, title: "Fan-out", rank: "Principal", tease: "Feeds, presence, thundering herds." },
-  { id: "l21", num: 21, title: "Premature Kafka", rank: "Principal", tease: "The correct architecture bankrupts the company." },
-  { id: "l22", num: 22, title: "No green field", rank: "Principal", tease: "Strangler fig. Dual-running. Feature flags." },
-  { id: "l23", num: 23, title: "Conway called", rank: "Chief Architect", tease: "Org chart is the architecture. Always was." },
-  { id: "l24", num: 24, title: "Tenant zero", rank: "Chief Architect", tease: "Threat model, isolation, supply chain." },
-  { id: "l25", num: 25, title: "Write down what you'll break", rank: "Chief Architect", tease: "Five nines, strict consistency, tiny budget. Choose." },
-];
-
-function stubLevel(s: Stub): LevelDef {
-  return {
-    id: s.id,
-    num: s.num,
-    title: s.title,
-    rank: s.rank,
-    playable: false,
-    tease: s.tease,
-    product: "",
-    brief: s.tease,
-    teach: [],
-    glossary: [],
-    dau: "—",
-    qps: 0,
-    readWrite: "—",
-    latencySloMs: 0,
-    availabilitySlo: 0,
-    budget: 0,
-    region: "—",
-    nonGoals: "—",
-    duration: 0,
-    seed: 0,
-    chaos: [],
-    palette: [],
-    cables: [],
-    scene: later,
-    preplaced: [],
-    copy: emptyCopy,
-  };
-}
-
-export const CAMPAIGN: LevelDef[] = [l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, ...stubs.map(stubLevel)];
+export const CAMPAIGN: LevelDef[] = [l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, ...LATE].map((level) => {
+  const budgeted = level.num < 11 ? level : { ...level, budget: Math.max(level.budget, 40 + level.num * 5) };
+  const extra: GlossaryItem[] = [];
+  if (budgeted.num >= 10) {
+    extra.push(
+      {
+        term: "Several databases",
+        means: "One service may keep more than one notebook. Ask them together. A chain adds every hop. Asking only the first leaves a book unread.",
+      },
+      {
+        term: "Gateway",
+        means: "The front door. It routes. It does not store. If a facade sits behind it, people should meet the facade rather than each service.",
+      },
+      {
+        term: "Facade",
+        means: "One service that hides the others. Callers see a single door. Behind it are services, databases, or both.",
+      },
+    );
+  }
+  if (budgeted.num >= 15) {
+    extra.push({
+      term: "Aggregator",
+      means: "One door for several services. Scatter-gather waits on the slowest. A chain adds every hop. The first service alone leaves the others off the page.",
+    });
+  }
+  if (extra.length === 0) return budgeted;
+  return { ...budgeted, glossary: [...budgeted.glossary, ...extra] };
+});
 
 export function getLevel(id: string): LevelDef {
   const level = CAMPAIGN.find((l) => l.id === id);

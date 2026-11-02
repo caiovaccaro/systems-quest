@@ -15,6 +15,7 @@ export function iconCanvas(id: string): HTMLCanvasElement {
   else if (id === "db") drawDatabase(ctx);
   else if (id === "http") drawHttp(ctx);
   else if (id === "sql") drawSql(ctx);
+  else if (id === "grpc" || id === "redis" || id === "amqp" || id === "kafka") drawCable(ctx, id);
   else drawApp(ctx);
   const labels: Record<string, string> = {
     users: "PEOPLE",
@@ -37,8 +38,50 @@ export function iconCanvas(id: string): HTMLCanvasElement {
     path: "PATH",
     ledger: "LEDGER",
     search: "CARDS",
+    darkroom: "DARKROOM",
+    plate: "PLATE",
+    album: "ALBUM",
+    customs: "CUSTOMS",
+    stamp: "STAMP",
+    stall: "STALL",
+    bin: "BIN",
+    ferry: "FERRY",
+    farshore: "SHORE",
+    counter: "COUNTER",
+    boathouse: "BOAT",
+    inn: "INN",
+    keydesk: "KEYS",
+    shelf: "SHELF",
+    notice: "NOTICE",
+    feed: "FEED",
+    till: "TILL",
+    bus: "BUS",
+    lane: "LANE",
+    barn: "BARN",
+    span: "SPAN",
+    hall: "HALL",
+    ward: "WARD",
+    charter: "CHARTER",
+    redisbox: "REDIS",
+    kafkalog: "KAFKA",
+    mysql: "MYSQL",
+    mongo: "MONGO",
+    lambda: "LAMBDA",
+    nginx: "NGINX",
+    haproxy: "HAPROXY",
+    cassandra: "CASSANDRA",
+    dynamo: "DYNAMO",
+    elastic: "ELASTIC",
+    neo4j: "NEO4J",
+    graphql: "GRAPHQL",
+    facade: "FACADE",
+    bff: "BFF",
+    profile: "PROFILE",
+    timeline: "TIMELINE",
+    stepfn: "STEPS",
+    saga: "SAGA",
   };
-  const label = labels[id] ?? "PIECE";
+  const label = labels[id] ?? id.replace(/[^a-z0-9]/gi, "").slice(0, 10).toUpperCase();
   ctx.fillStyle = "#3d342b";
   ctx.font = "800 26px Outfit, Trebuchet MS, sans-serif";
   ctx.textAlign = "center";
@@ -295,8 +338,32 @@ function drawSql(ctx: CanvasRenderingContext2D): void {
   ctx.fillText("app → database", 128, 198);
 }
 
+const CABLE_INK: Record<string, string> = {
+  http: "#e07a5f",
+  sql: "#8d74b8",
+  grpc: "#3d9a6a",
+  redis: "#d64545",
+  amqp: "#f08a3c",
+  kafka: "#2f2a28",
+};
+
+function drawCable(ctx: CanvasRenderingContext2D, id: string): void {
+  const ink = CABLE_INK[id] ?? "#e07a5f";
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 10;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(48, 150);
+  ctx.quadraticCurveTo(128, 40, 208, 150);
+  ctx.stroke();
+  ctx.fillStyle = ink;
+  ctx.font = "800 28px Outfit, Trebuchet MS, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(id.toUpperCase(), 128, 118);
+}
+
 /** Tiny billboard texture for a live cable on the board. */
-export function cableLabelCanvas(kind: "http" | "sql"): HTMLCanvasElement {
+export function cableLabelCanvas(kind: string): HTMLCanvasElement {
   const key = `label:${kind}`;
   const hit = cache.get(key);
   if (hit) return hit;
@@ -305,15 +372,15 @@ export function cableLabelCanvas(kind: "http" | "sql"): HTMLCanvasElement {
   canvas.height = 64;
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
-  const fill = kind === "http" ? "#e07a5f" : "#8d74b8";
+  const fill = CABLE_INK[kind] ?? "#e07a5f";
   round(ctx, 8, 8, 144, 48, 18);
   ctx.fillStyle = fill;
   ctx.fill();
-  ctx.fillStyle = "#fffaf3";
-  ctx.font = "800 28px Outfit, Trebuchet MS, sans-serif";
+  ctx.fillStyle = kind === "kafka" ? "#f6e2a8" : "#fffaf3";
+  ctx.font = "800 26px Outfit, Trebuchet MS, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(kind === "http" ? "HTTP" : "SQL", 80, 32);
+  ctx.fillText(kind.toUpperCase(), 80, 32);
   cache.set(key, canvas);
   return canvas;
 }

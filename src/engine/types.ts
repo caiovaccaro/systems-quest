@@ -20,10 +20,14 @@ export type IslandShape =
   | "ridge"
   | "steps"
   | "courtyard"
-  | "lobes";
+  | "lobes"
+  | "bay"
+  | "fork"
+  | "causeway"
+  | "comb";
 export type Shape = "cluster" | "box" | "tower" | "cyl";
-/** How two pieces talk. People use HTTP. Apps ask databases with SQL. */
-export type LinkKind = "http" | "sql";
+/** How two pieces talk. Browsers speak HTTP. Everything else is a choice. */
+export type LinkKind = "http" | "sql" | "grpc" | "redis" | "amqp" | "kafka";
 export type Diagnosis =
   | "pass"
   | "unwired"
@@ -81,6 +85,16 @@ export interface ComponentDef {
   baseLatencyMs: number;
   queueSize: number;
   maxConnections?: number;
+  /** Data family. A document store used as a relational notebook is slow. */
+  fit?: string;
+  /** Cables this piece actually speaks. Defaults: stores speak SQL, services speak HTTP and gRPC. */
+  accepts?: LinkKind[];
+  /** Wakes, answers, and keeps nothing. Writes on a write-heavy lesson are lost. */
+  forgets?: boolean;
+  /** Builds one response by calling the services cabled behind it. */
+  aggregates?: boolean;
+  /** A log. Every service cabled to it hears the event, not just one worker. */
+  broadcast?: boolean;
   config: ConfigField[];
 }
 
@@ -151,6 +165,8 @@ export interface LevelDef {
   mustHttp?: string[];
   /** A store-backed app must SQL-cable every one of these def ids. */
   mustStores?: string[];
+  /** Each of these services must read and write a database of its own. */
+  owners?: string[];
   scene: SceneDef;
   preplaced: { defId: string; x: number; z: number; locked: boolean }[];
   copy: {

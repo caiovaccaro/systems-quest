@@ -119,8 +119,64 @@ export class Board {
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
-    const view = 9.4;
-    const aspect = w / Math.max(1, h);
+    this.fitCamera();
+  }
+
+  /** Keep the whole island on screen, including tall phones where the width is the tight edge. */
+  private fitCamera(): void {
+    const canvas = this.renderer.domElement;
+    const w = canvas.clientWidth || window.innerWidth;
+    const h = canvas.clientHeight || window.innerHeight;
+    if (w < 2 || h < 2) return;
+    const aspect = w / h;
+    this.camera.updateMatrixWorld();
+    let minGx = 0;
+    let maxGx = COLS - 1;
+    let minGz = 0;
+    let maxGz = ROWS - 1;
+    let any = false;
+    let landMinX = COLS;
+    let landMaxX = 0;
+    let landMinZ = ROWS;
+    let landMaxZ = 0;
+    for (let z = 0; z < ROWS; z++) {
+      for (let x = 0; x < COLS; x++) {
+        if (!this.mask[z]?.[x]) continue;
+        any = true;
+        landMinX = Math.min(landMinX, x);
+        landMaxX = Math.max(landMaxX, x);
+        landMinZ = Math.min(landMinZ, z);
+        landMaxZ = Math.max(landMaxZ, z);
+      }
+    }
+    if (any) {
+      minGx = landMinX;
+      maxGx = landMaxX;
+      minGz = landMinZ;
+      maxGz = landMaxZ;
+    }
+    const corners: [number, number][] = [
+      [minGx - 1.1, minGz - 1.1],
+      [maxGx + 1.1, minGz - 1.1],
+      [minGx - 1.1, maxGz + 1.1],
+      [maxGx + 1.1, maxGz + 1.1],
+    ];
+    let maxX = 0.01;
+    let maxY = 0.01;
+    for (const [gx, gz] of corners) {
+      const spot = gridToWorld(gx, gz);
+      for (const y of [0, 2.6]) {
+        this.tmp.set(spot.x, y, spot.z);
+        this.tmp.applyMatrix4(this.camera.matrixWorldInverse);
+        maxX = Math.max(maxX, Math.abs(this.tmp.x));
+        maxY = Math.max(maxY, Math.abs(this.tmp.y));
+      }
+    }
+    const compact = window.matchMedia("(max-width: 1200px), (max-height: 760px)").matches;
+    const short = window.matchMedia("(max-height: 520px)").matches;
+    const pad = short ? 1.55 : compact ? 1.2 : 1.05;
+    const needed = Math.max(maxY * pad, (maxX * pad) / aspect);
+    const view = Math.max(9.4, needed);
     this.camera.left = -view * aspect;
     this.camera.right = view * aspect;
     this.camera.top = view;
@@ -417,6 +473,7 @@ export class Board {
       }
     }
     if (n > 0) this.camera.lookAt(sx / n, 0, sz / n);
+    this.fitCamera();
   }
 
   private cellLand(x: number, z: number): boolean {

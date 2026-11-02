@@ -1,5 +1,6 @@
 import { sfx } from "../audio/sfx";
-import { getCable, isCable } from "../catalog/cables";
+import { isCable } from "../catalog/cables";
+import { offeredCables, offeredPieces } from "../catalog/wire";
 import { defaultConfig, getComponent } from "../catalog/components";
 import { SIM_STEP } from "../engine/const";
 import { nid, resetIds } from "../engine/ids";
@@ -22,6 +23,7 @@ import {
   renderInspect,
   renderLabels,
   renderPalette,
+  installLevelPalettes,
   renderSelect,
   renderSuccess,
   type UI,
@@ -54,6 +56,7 @@ export class Game {
   private briefing = false;
   private pieceDrag: { id: string; sx: number; sy: number; moved: boolean } | null = null;
   private trayDrag: { id: string; sx: number; sy: number; moved: boolean } | null = null;
+  private sheet: "" | "palette" | "inspect" = "";
 
   constructor(app: HTMLElement) {
     this.ui = mountShell(app);
@@ -67,6 +70,7 @@ export class Game {
 
   private bind(): void {
     window.addEventListener("resize", () => this.board.resize());
+    window.visualViewport?.addEventListener("resize", () => this.board.resize());
     window.addEventListener("keydown", (e) => this.onKey(e));
     window.addEventListener("pointermove", (e) => this.onMove(e));
     window.addEventListener("pointerup", (e) => this.onUp(e));
@@ -84,6 +88,8 @@ export class Game {
     if (!(t instanceof HTMLElement)) return;
     const act = t.closest("[data-act]")?.getAttribute("data-act");
     const levelId = t.closest("[data-level]")?.getAttribute("data-level");
+    const picked = t.closest("[data-tool]");
+    if (picked && this.sheet) this.setSheet("");
     if (levelId) {
       this.openLevel(levelId);
       return;
@@ -104,6 +110,11 @@ export class Game {
     if (act === "retry") this.enterLevel();
     if (act === "next") this.nextLevel();
     if (act === "delete") this.deleteSelected();
+    if (act === "sheet") {
+      const which = t.closest("[data-sheet]")?.getAttribute("data-sheet") ?? "";
+      if (which === "palette" || which === "inspect") this.setSheet(which);
+      else this.setSheet("");
+    }
   }
 
   private onChange(e: Event): void {
@@ -142,6 +153,10 @@ export class Game {
         hideModal(this.ui.modal);
         return;
       }
+      if (this.sheet) {
+        this.setSheet("");
+        return;
+      }
       this.selected = null;
       this.board.setSelected(null);
       this.refreshInspect();
@@ -152,6 +167,10 @@ export class Game {
     if (this.celebrating || this.screen !== "play") return;
     const t = e.target;
     if (!(t instanceof Element)) return;
+    if (t === this.board.renderer.domElement && this.sheet) {
+      this.setSheet("");
+      return;
+    }
     const tool = t.closest("[data-tool]")?.getAttribute("data-tool");
     if (tool) {
       if (isCable(tool)) {
@@ -174,6 +193,7 @@ export class Game {
       this.selected = hit.id;
       this.board.setSelected(hit.id);
       this.refreshInspect();
+      this.refreshDock();
       this.pieceDrag = { id: hit.id, sx: e.clientX, sy: e.clientY, moved: false };
       try {
         this.board.renderer.domElement.setPointerCapture(e.pointerId);
@@ -183,8 +203,10 @@ export class Game {
       return;
     }
     if (hit?.type === "tile" && this.tool && !isCable(this.tool)) {
-      this.place(this.tool, hit.x, hit.z);
+      const placing = this.tool;
       this.tool = "";
+      this.place(placing, hit.x, hit.z);
+      this.refreshDock();
       return;
     }
     this.selected = null;
@@ -196,6 +218,7 @@ export class Game {
     if (this.trayDrag) {
       if (Math.hypot(e.clientX - this.trayDrag.sx, e.clientY - this.trayDrag.sy) > 6) {
         this.trayDrag.moved = true;
+        if (this.sheet) this.setSheet("");
         document.body.classList.add("dragging");
         this.ui.ghost.classList.remove("hidden");
         this.ui.ghost.setAttribute("src", iconURL(this.trayDrag.id));
@@ -242,11 +265,12 @@ export class Game {
     this.board.setHoverTile(null);
     const overUi =
       e.target instanceof Element &&
-      !!e.target.closest(".palette, .inspect, .hud-top, .controls, .coach, .keys, .modal-back");
+      !!e.target.closest(".palette, .inspect, .hud-top, .controls, .coach, .modal-back, .dock");
 
     if (this.trayDrag) {
       const drag = this.trayDrag;
       this.trayDrag = null;
+      if (!drag.moved) this.setSheet("");
       if (isCable(drag.id)) {
         this.cableTool = drag.id;
         this.tool = "";
@@ -294,13 +318,16 @@ export class Game {
     if (otherId) {
       if (!this.cableTool) {
         this.syncBoard();
-        const needsSql = this.level?.cables.includes("sql");
+        const cables = this.level ? offeredCables(this.level) : [];
         renderCoach(this.ui.coach, {
           tone: "wait",
           title: "Pick a cable first",
-          body: needsSql
-            ? "Connections have a language. Pick HTTP for People → app, or SQL for app → database, then drag one piece onto the other."
-            : "People reach the laptop over HTTP. Pick the HTTP cable in the tray, then drag People onto the laptop.",
+          body:
+            cables.length > 2
+              ? "Every cable is a different language. HTTP is how people arrive. SQL, gRPC, Redis, AMQP, and Kafka are how machines talk. Pick one, then drag a piece onto another."
+              : cables.some((c) => c.id === "sql")
+                ? "Connections have a language. Pick HTTP for People → app, or SQL for app → database, then drag one piece onto the other."
+                : "People reach the laptop over HTTP. Pick the HTTP cable in the tray, then drag People onto the laptop.",
         });
         return;
       }
@@ -364,6 +391,8 @@ export class Game {
     this.undo = [];
     this.board.setScene(this.level.scene);
     document.documentElement.style.setProperty("--bg", cssColor(this.level.scene.water));
+    installLevelPalettes();
+    this.ui.game.style.fontPalette = `--honk-${this.level.id}`;
     this.selected = this.nodes[0]?.id ?? null;
     hideModal(this.ui.modal);
     this.ui.boot.classList.add("hidden");
@@ -508,8 +537,8 @@ export class Game {
     if (!this.level) return;
     renderPalette(
       this.ui.palette,
-      this.level.palette.map(getComponent),
-      this.level.cables.map((id) => getCable(id)!),
+      offeredPieces(this.level),
+      offeredCables(this.level),
       this.cost(),
       this.level.budget,
       this.cableTool,
@@ -518,7 +547,29 @@ export class Game {
     const mode = this.celebrating ? "won" : this.play === "paused" ? "paused" : "live";
     renderHud(this.ui.hud, this.hud, this.level, mode);
     renderControls(this.ui.controls, this.play === "paused");
+    this.refreshDock();
     this.updateCoach();
+  }
+
+  private setSheet(next: "" | "palette" | "inspect"): void {
+    this.sheet = next && next === this.sheet ? "" : next;
+    this.ui.game.classList.toggle("sheet-palette", this.sheet === "palette");
+    this.ui.game.classList.toggle("sheet-inspect", this.sheet === "inspect");
+    for (const button of this.ui.game.querySelectorAll<HTMLElement>(".dock-btn")) {
+      button.classList.toggle("active", button.getAttribute("data-sheet") === this.sheet);
+    }
+  }
+
+  private refreshDock(): void {
+    const armed = this.tool ? getComponent(this.tool).name : "";
+    const selected = this.nodes.find((n) => n.id === this.selected);
+    const selectedName = selected ? getComponent(selected.defId).name : "";
+    if (armed) this.ui.dockNote.textContent = `Tap a tile to place ${armed}.`;
+    else if (this.cableTool) this.ui.dockNote.textContent = `${this.cableTool.toUpperCase()} cable. Drag one piece onto another.`;
+    else if (selectedName) this.ui.dockNote.textContent = `${selectedName}. Open This piece to change it.`;
+    else this.ui.dockNote.textContent = "Open Pieces, tap one, then tap the island.";
+    this.ui.game.classList.toggle("sheet-palette", this.sheet === "palette");
+    this.ui.game.classList.toggle("sheet-inspect", this.sheet === "inspect");
   }
 
   private refreshInspect(): void {

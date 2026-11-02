@@ -351,5 +351,99 @@ export function buildModel(defId: string): { root: THREE.Group; led: THREE.Mesh 
   if (defId === "path") return buildPath();
   if (defId === "ledger") return buildLedger();
   if (defId === "search") return buildCatalog();
-  return buildApp();
+  if (defId === "app") return buildApp();
+  return buildStyled(defId);
+}
+
+type Silhouette = "crate" | "arch" | "well" | "banner" | "house";
+
+const STYLED: Record<string, { kind: Silhouette; color: number; trim: number }> = {
+  darkroom: { kind: "house", color: 0x3d4a66, trim: 0xf0c14a },
+  plate: { kind: "crate", color: 0x8aa0b4, trim: 0xe7eef2 },
+  album: { kind: "banner", color: 0xc49a8c, trim: 0xfff6ea },
+  customs: { kind: "arch", color: 0xe7d3b1, trim: 0xc46a45 },
+  stamp: { kind: "crate", color: 0xc46a45, trim: 0xf2c14e },
+  stall: { kind: "banner", color: 0xe0a15a, trim: 0xfff6ea },
+  bin: { kind: "crate", color: 0xd08a62, trim: 0xf3e2c4 },
+  ferry: { kind: "arch", color: 0x6ea4b8, trim: 0xf7f4ee },
+  farshore: { kind: "well", color: 0x4aa3c7, trim: 0xe7eef2 },
+  counter: { kind: "house", color: 0xf3c98a, trim: 0xe07a3c },
+  boathouse: { kind: "house", color: 0x3d4a66, trim: 0x6ea4b8 },
+  inn: { kind: "house", color: 0x8d97b0, trim: 0xf0c14a },
+  keydesk: { kind: "banner", color: 0xf0c14a, trim: 0x3d342b },
+  shelf: { kind: "crate", color: 0x6a8f62, trim: 0xd5e2b8 },
+  notice: { kind: "banner", color: 0xe07a5f, trim: 0xfff6ea },
+  feed: { kind: "well", color: 0xc9b79c, trim: 0x5c6b73 },
+  till: { kind: "crate", color: 0x7d9a78, trim: 0xf2c14e },
+  bus: { kind: "arch", color: 0xc4894f, trim: 0xf2c14e },
+  lane: { kind: "arch", color: 0x8d6246, trim: 0xe4c89a },
+  barn: { kind: "house", color: 0xc46a45, trim: 0xf6e2a8 },
+  span: { kind: "arch", color: 0x6e5a78, trim: 0xf7f4ee },
+  hall: { kind: "house", color: 0x5b8fd6, trim: 0xfff6ea },
+  ward: { kind: "well", color: 0x3d6b4f, trim: 0xd5e2b8 },
+  charter: { kind: "banner", color: 0xf2f0ea, trim: 0xc46a45 },
+};
+
+function lookFor(defId: string): { kind: Silhouette; color: number; trim: number } {
+  const known = STYLED[defId];
+  if (known) return known;
+  let hash = 0;
+  for (const ch of defId) hash = (hash * 33 + ch.charCodeAt(0)) >>> 0;
+  const kinds: Silhouette[] = ["crate", "arch", "well", "banner", "house"];
+  const colors = [0x3d6b8a, 0xc46a45, 0x6a8f62, 0x8d74b8, 0xe0a15a, 0x3d4a66, 0xc9b79c, 0x5b8fd6, 0xd64545, 0xf0c14a];
+  return {
+    kind: kinds[hash % kinds.length]!,
+    color: colors[hash % colors.length]!,
+    trim: colors[(hash >> 3) % colors.length]!,
+  };
+}
+
+function buildStyled(defId: string): { root: THREE.Group; led: THREE.Mesh } {
+  const look = lookFor(defId);
+  if (look.kind === "crate") return buildCrate(look.color, look.trim);
+  if (look.kind === "arch") return buildArch(look.color, look.trim);
+  if (look.kind === "well") return buildWell(look.color, look.trim);
+  if (look.kind === "banner") return buildBanner(look.color, look.trim);
+  return buildHouse(look.color, look.trim);
+}
+
+function buildCrate(color: number, trim: number): { root: THREE.Group; led: THREE.Mesh } {
+  const root = new THREE.Group();
+  box(root, 0.62, 0.42, 0.5, 0, BASE + 0.28, 0, mat(color, 0.62));
+  box(root, 0.66, 0.06, 0.54, 0, BASE + 0.5, 0, mat(trim, 0.5));
+  box(root, 0.08, 0.2, 0.52, -0.2, BASE + 0.28, 0, mat(trim, 0.55));
+  const led = lamp(root, 0.24, BASE + 0.62, 0);
+  return { root, led };
+}
+
+function buildArch(color: number, trim: number): { root: THREE.Group; led: THREE.Mesh } {
+  const root = new THREE.Group();
+  box(root, 0.14, 0.7, 0.16, -0.28, BASE + 0.35, 0, mat(color, 0.6));
+  box(root, 0.14, 0.7, 0.16, 0.28, BASE + 0.35, 0, mat(color, 0.6));
+  box(root, 0.78, 0.12, 0.22, 0, BASE + 0.74, 0, mat(trim, 0.5));
+  const led = lamp(root, 0, BASE + 0.92, 0);
+  return { root, led };
+}
+
+function buildWell(color: number, trim: number): { root: THREE.Group; led: THREE.Mesh } {
+  const root = new THREE.Group();
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.46, 16), mat(color, 0.55));
+  drum.position.set(0, BASE + 0.28, 0);
+  root.add(drum);
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.04, 8, 16), mat(trim, 0.45));
+  lip.rotation.x = Math.PI / 2;
+  lip.position.set(0, BASE + 0.5, 0);
+  root.add(lip);
+  const led = lamp(root, 0, BASE + 0.66, 0);
+  return { root, led };
+}
+
+function buildBanner(color: number, trim: number): { root: THREE.Group; led: THREE.Mesh } {
+  const root = new THREE.Group();
+  box(root, 0.08, 0.9, 0.08, -0.32, BASE + 0.45, 0, mat(0x3d342b, 0.7));
+  box(root, 0.08, 0.9, 0.08, 0.32, BASE + 0.45, 0, mat(0x3d342b, 0.7));
+  box(root, 0.7, 0.42, 0.06, 0, BASE + 0.62, 0, mat(color, 0.55));
+  box(root, 0.2, 0.08, 0.07, 0, BASE + 0.5, 0.02, mat(trim, 0.45));
+  const led = lamp(root, 0, BASE + 0.95, 0);
+  return { root, led };
 }

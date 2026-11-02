@@ -1,5 +1,6 @@
 import type { CableDef } from "../catalog/cables";
 import { getComponent } from "../catalog/components";
+import { offeredCables, offeredPieces } from "../catalog/wire";
 import { gridToWorld } from "../engine/const";
 import type {
   ComponentDef,
@@ -11,6 +12,7 @@ import type {
   PlacedNode,
 } from "../engine/types";
 import { CAMPAIGN } from "../levels/campaign";
+import { honkStops } from "../levels/island";
 import type { CoachNote } from "../game/coach";
 import { iconURL } from "../render/icons";
 
@@ -27,6 +29,7 @@ export interface UI {
   controls: HTMLElement;
   labels: HTMLElement;
   ghost: HTMLElement;
+  dockNote: HTMLElement;
 }
 
 export function mountShell(app: HTMLElement): UI {
@@ -35,8 +38,7 @@ export function mountShell(app: HTMLElement): UI {
     <div id="ui">
       <div class="world-labels" id="labels"></div>
       <section class="layer boot" id="boot">
-        <div class="kicker">build the town · keep the promise</div>
-        <h1>systems_quest</h1>
+        <h1>systemsquest</h1>
         <p>A little island of machines. Place the pieces, cable them, and watch real traffic cross the grid. The numbers tell you whether you kept your promise.</p>
         <div class="boot-actions">
           <button class="btn primary" data-act="enter">Start learning</button>
@@ -48,8 +50,12 @@ export function mountShell(app: HTMLElement): UI {
         <aside class="palette" id="palette"></aside>
         <aside class="inspect" id="inspect"></aside>
         <div class="coach wait" id="coach"></div>
-        <div class="keys">Pick a cable (HTTP or SQL), then drag one piece onto another to plug it in — or to unplug.<br/>Drag machines from the tray to place. Space pauses. Z undoes. Delete removes.</div>
-        <div class="controls" id="controls"></div>
+        <div class="dock" id="dock">
+          <p class="dock-note" id="docknote"></p>
+          <button class="btn dock-btn" data-act="sheet" data-sheet="palette" type="button">Pieces</button>
+          <button class="btn dock-btn" data-act="sheet" data-sheet="inspect" type="button">This piece</button>
+          <div class="controls" id="controls"></div>
+        </div>
       </section>
       <div class="modal-back hidden" id="modal"></div>
       <img id="ghost" class="ghost hidden" alt="" />
@@ -68,6 +74,7 @@ export function mountShell(app: HTMLElement): UI {
     controls: must(app, "#controls"),
     labels: must(app, "#labels"),
     ghost: must(app, "#ghost"),
+    dockNote: must(app, "#docknote"),
   };
 }
 
@@ -77,11 +84,29 @@ function must(root: HTMLElement, sel: string): HTMLElement {
   return el;
 }
 
+function countLabel(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+export function installLevelPalettes(): void {
+  let style = document.getElementById("level-palettes");
+  if (!(style instanceof HTMLStyleElement)) {
+    style = document.createElement("style");
+    style.id = "level-palettes";
+    document.head.appendChild(style);
+  }
+  style.textContent = CAMPAIGN.map((level) => {
+    const stops = honkStops(level.scene).map((color, i) => `${i} ${color}`).join(", ");
+    return `@font-palette-values --honk-${level.id} { font-family: Honk; base-palette: 0; override-colors: ${stops}; }`;
+  }).join("\n");
+}
+
 export function renderSelect(el: HTMLElement, cleared: Set<string>): void {
+  installLevelPalettes();
   el.innerHTML = `
     <div class="select-head">
       <div>
-        <div class="kicker">systems_quest</div>
+        <div class="kicker wordmark">systemsquest</div>
         <h1>Start small.</h1>
       </div>
       <div class="kicker">${cleared.size} done</div>
@@ -91,10 +116,11 @@ export function renderSelect(el: HTMLElement, cleared: Set<string>): void {
         const locked = !l.playable;
         const done = cleared.has(l.id);
         return `
-          <button class="card ${done ? "cleared" : ""}" data-level="${l.id}" ${locked ? "disabled" : ""}>
+          <button class="card ${done ? "cleared" : ""}" data-level="${l.id}" style="font-palette: --honk-${l.id}" ${locked ? "disabled" : ""}>
             <div class="meta"><span>Lesson ${l.num} · ${l.rank}</span><span>${locked ? "Later" : done ? "Done" : "Open"}</span></div>
             <h3>${l.title}</h3>
             <p>${l.tease}</p>
+            <p class="count">${countLabel(offeredPieces(l).length, "piece")} · ${countLabel(offeredCables(l).length, "cable")}</p>
           </button>
         `;
       }).join("")}
@@ -103,13 +129,14 @@ export function renderSelect(el: HTMLElement, cleared: Set<string>): void {
 }
 
 export function renderBrief(el: HTMLElement, level: LevelDef, playing: boolean): void {
+  installLevelPalettes();
   el.classList.remove("hidden");
   const lessons = level.teach.map((p) => `<p>${p}</p>`).join("");
   const gloss = level.glossary
     .map((g) => `<div class="gloss"><b>${g.term}</b><span>${g.means}</span></div>`)
     .join("");
   el.innerHTML = `
-    <div class="modal lesson">
+    <div class="modal lesson" style="font-palette: --honk-${level.id}">
       <div class="rank">${level.rank} · Lesson ${level.num}</div>
       <h2>${level.title}</h2>
       <p class="lead">${level.brief}</p>
@@ -136,9 +163,10 @@ export function renderBrief(el: HTMLElement, level: LevelDef, playing: boolean):
 }
 
 export function renderSuccess(el: HTMLElement, level: LevelDef, bullets: [string, string, string]): void {
+  installLevelPalettes();
   el.classList.remove("hidden");
   el.innerHTML = `
-    <div class="modal success">
+    <div class="modal success" style="font-palette: --honk-${level.id}">
       <div class="success-mark">✓</div>
       <div class="rank">Promise kept</div>
       <h2 class="pass">${level.title}</h2>
@@ -167,19 +195,30 @@ export function renderPalette(
   activeCable: LinkKind | "",
 ): void {
   const over = cost > budget;
+  const groups: { title: string; items: ComponentDef[] }[] = [
+    { title: "Services", items: defs.filter((d) => d.category === "compute") },
+    { title: "Databases", items: defs.filter((d) => d.category === "data") },
+    { title: "Caches", items: defs.filter((d) => d.category === "cache") },
+    { title: "Queues and logs", items: defs.filter((d) => d.category === "queue") },
+    { title: "Proxies and edges", items: defs.filter((d) => d.category === "network") },
+  ].filter((group) => group.items.length > 0);
+  const button = (d: ComponentDef) => `
+      <button class="tool" data-tool="${d.id}">
+        <img src="${iconURL(d.id)}" alt="" />
+        <div>${d.name}<small>$${d.cost} / mo</small></div>
+      </button>`;
   el.innerHTML = `
-    <h2>Pieces</h2>
+    <button class="btn sheet-done" data-act="sheet" data-sheet="" type="button">Done</button>
+    <h2>Pieces · ${defs.length}</h2>
     <div class="metric">
       <b class="${over ? "budget-over" : ""}">$${cost} / $${budget}</b>
       <span>monthly cost</span>
     </div>
-    ${defs
+    ${groups
       .map(
-        (d) => `
-      <button class="tool" data-tool="${d.id}">
-        <img src="${iconURL(d.id)}" alt="" />
-        <div>${d.name}<small>$${d.cost} a month · drag onto the table</small></div>
-      </button>
+        (group) => `
+      <h3 class="tray-group">${group.title}</h3>
+      <div class="tray-items">${group.items.map(button).join("")}</div>
     `,
       )
       .join("")}
@@ -187,7 +226,7 @@ export function renderPalette(
       cables.length
         ? `<h2 class="cables-head">Cables</h2>
     <p class="cable-lead">Pick one, then drag a piece onto another.</p>
-    ${cables
+    <div class="tray-items">${cables
       .map(
         (c) => `
       <button class="tool cable ${activeCable === c.id ? "active" : ""}" data-tool="${c.id}">
@@ -196,15 +235,16 @@ export function renderPalette(
       </button>
     `,
       )
-      .join("")}`
+      .join("")}</div>`
         : ""
     }
+    <p class="tray-foot">Space pauses. Z undoes. Delete removes.</p>
   `;
 }
 
 export function renderInspect(el: HTMLElement, node: PlacedNode | null, view: NodeView | null): void {
   if (!node) {
-    el.innerHTML = `<h2>This piece</h2><p class="empty">Click a piece to read it. Drag it to move it. Pick a cable in the tray, then drag one piece onto another to connect them over HTTP or SQL.</p>`;
+    el.innerHTML = `<button class="btn sheet-done" data-act="sheet" data-sheet="" type="button">Done</button><h2>This piece</h2><p class="empty">Select a piece to read it. Drag it to move it. Pick a cable in the tray, then drag one piece onto another. On a small screen, tap a piece, close this tray, then tap a tile. Later lessons add databases, caches, queues, proxies, and protocols. The budget only pays for a design that fits.</p>`;
     return;
   }
   const def = getComponent(node.defId);
@@ -212,6 +252,7 @@ export function renderInspect(el: HTMLElement, node: PlacedNode | null, view: No
     .map((field) => configField(field, node.config[field.key], node.locked))
     .join("");
   el.innerHTML = `
+    <button class="btn sheet-done" data-act="sheet" data-sheet="" type="button">Done</button>
     <h2>This piece</h2>
     <img class="inspect-icon" src="${iconURL(node.defId)}" alt="" />
     <div class="name">${def.name}</div>

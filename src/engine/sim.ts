@@ -1,4 +1,5 @@
 import { getComponent } from "../catalog/components";
+import { accepts, lessonFits, missingLessonKnob, SERVICE_KINDS } from "../catalog/wire";
 import { gridToWorld, HOP_HTTP, HOP_QUERY, MAX_VISUAL_PACKETS, WAIT_TIMEOUT } from "./const";
 import { Metrics } from "./metrics";
 import { Rng } from "./rng";
@@ -20,6 +21,7 @@ type Phase = "move" | "wait" | "proc" | "child";
 interface Req {
   id: number;
   kind: Kind;
+  wire: LinkKind;
   phase: Phase;
   fromId: string;
   toId: string;
@@ -32,6 +34,16 @@ interface Req {
   history: string[];
   parentId: number | null;
   qLeft: number;
+  /** Services still to call, one at a time, for a chain. */
+  pending: { to: string; kind: LinkKind }[];
+  /** This request is a service call returning to an aggregator. */
+  join: boolean;
+  /** Parallel queries to every database, instead of one after another. */
+  fanStores: boolean;
+  /** Service calls finished; databases still have to be asked. */
+  storesDone: boolean;
+  /** Owning services that wrote or read a database on this visit, and which one. */
+  hits: { service: string; store: string }[];
   waitLimit: number;
   holding: boolean;
   returning: boolean;
@@ -191,17 +203,18 @@ export class Simulation {
       return;
     }
     const dest = this.rng.pick(dests);
-    const req = this.makeReq("http", users.placed.id, dest, null);
+    const req = this.makeReq("http", users.placed.id, dest, null, "http");
     req.history = [users.placed.id];
     this.reqs.push(req);
   }
 
-  private makeReq(kind: Kind, from: string, to: string, parent: number | null): Req {
+  private makeReq(kind: Kind, from: string, to: string, parent: number | null, wire: LinkKind): Req {
     const visual = this.visuals < MAX_VISUAL_PACKETS;
     if (visual) this.visuals += 1;
     const req: Req = {
       id: this.nextId++,
       kind,
+      wire,
       phase: "move",
       fromId: from,
       toId: to,
@@ -214,6 +227,11 @@ export class Simulation {
       history: [],
       parentId: parent,
       qLeft: 0,
+      pending: [],
+      join: false,
+      fanStores: false,
+      storesDone: false,
+      hits: [],
       waitLimit: WAIT_TIMEOUT,
       holding: false,
       returning: false,
@@ -252,6 +270,14 @@ export class Simulation {
       return;
     }
 
+    if (req.join && req.parentId !== null) {
+      const parent = this.parentOf.get(req.parentId);
+      if (parent && req.atId === parent.atId) {
+        this.onJoin(req);
+        return;
+      }
+    }
+
     if (
       req.returning &&
       (def.machine === "forward" || def.machine === "cdn" || def.machine === "queue" || def.machine === "gate")
@@ -265,7 +291,7 @@ export class Simulation {
       return;
     }
 
-    if (def.role === "store" && req.kind === "http") {
+    if (!req.returning && !accepts(def, req.wire)) {
       this.flags.protocol += 1;
       this.fail(req, node, "protocol");
       return;
@@ -299,8 +325,9 @@ export class Simulation {
     parent.qLeft -= 1;
     if (parent.qLeft <= 0) {
       this.parentOf.delete(parent.id);
+      if (this.maybePublish(parent)) return;
       this.sendBack(parent);
-    } else {
+    } else if (!parent.fanStores) {
       this.spawnQuery(parent);
     }
   }
@@ -325,13 +352,14 @@ export class Simulation {
       node.queue = still;
 
       while (node.queue.length > 0) {
-        if (node.tokens < 1) break;
+        const cost = this.tokenCost(node);
+        if (node.tokens < cost) break;
         if (def.role === "store" && node.conns >= this.poolSize(node)) {
           this.flags.poolWaits += 1;
           break;
         }
         const req = node.queue.shift()!;
-        node.tokens -= 1;
+        node.tokens -= this.tokenCost(node);
         if (def.role === "store") {
           node.conns += 1;
           req.holding = true;
@@ -377,59 +405,301 @@ export class Simulation {
       return;
     }
 
+    if (def.aggregates) {
+      if (this.startCompose(req, node)) return;
+      if (this.queryLinks(node.placed.id).length > 0) {
+        this.launchStores(req, node);
+        return;
+      }
+      if (!this.level.palette.includes(def.id)) {
+        this.flags.unwired += 1;
+        this.fail(req, node, "unwired");
+        return;
+      }
+    }
+
+    if (def.broadcast) {
+      if (this.startBroadcast(req, node)) return;
+      if (!this.level.palette.includes(def.id)) {
+        this.flags.unwired += 1;
+        this.fail(req, node, "unwired");
+        return;
+      }
+      this.sendBack(req);
+      return;
+    }
+
     if (def.machine === "cdn" || def.machine === "forward" || def.machine === "queue" || def.machine === "gate") {
-      const absorb = def.machine === "cdn" && node.placed.config.cache === "public" && this.rng.next() < 0.9;
-      if (!absorb && this.forward(req, node)) return;
+      const shared =
+        (def.machine === "cdn" && node.placed.config.cache === "public") ||
+        node.placed.config.sessions === "shared";
+      const absorb = shared && this.rng.next() < 0.9;
+      if (absorb) {
+        this.sendBack(req);
+        return;
+      }
+      if (this.forward(req, node)) return;
+      if (!this.level.palette.includes(def.id)) {
+        this.flags.unwired += 1;
+        this.fail(req, node, "unwired");
+        return;
+      }
       this.sendBack(req);
       return;
     }
 
     if (def.role === "compute" && def.requiresStore) {
-      const stores = this.targets(node.placed.id, "sql").filter((id) => {
-        const n = this.nodes.get(id);
-        return n && getComponent(n.defId).role === "store";
-      });
-      if (stores.length === 0) {
-        this.flags.nostore += 1;
-        this.fail(req, node, "nostore");
-        return;
-      }
-      const must = this.level.mustStores ?? [];
-      for (const defId of must) {
-        if (!stores.some((id) => this.nodes.get(id)?.defId === defId)) {
-          this.flags.nostore += 1;
-          this.fail(req, node, "nostore");
-          return;
-        }
-      }
-      const nPlus = node.placed.config.query === "nplusone";
-      if (nPlus) this.flags.n1 = true;
-      req.qLeft = nPlus ? 12 : 1;
-      req.phase = "child";
-      this.parentOf.set(req.id, req);
-      this.spawnQuery(req);
+      this.launchStores(req, node);
+      return;
+    }
+
+    if (def.forgets && !this.level.readWrite.trim().startsWith("100")) {
+      this.flags.nostore += 1;
+      this.fail(req, node, "nostore");
       return;
     }
 
     this.sendBack(req);
   }
 
+  private serviceLinks(from: string, history: string[]): { to: string; kind: LinkKind }[] {
+    const out: { to: string; kind: LinkKind }[] = [];
+    for (const link of this.outgoing.get(from) ?? []) {
+      if (!SERVICE_KINDS.includes(link.kind)) continue;
+      if (history.includes(link.to) || link.to === from) continue;
+      const next = this.nodes.get(link.to);
+      if (!next || getComponent(next.defId).role !== "compute") continue;
+      out.push(link);
+    }
+    return out;
+  }
+
+  private startCompose(req: Req, node: RuntimeNode): boolean {
+    const links = this.serviceLinks(node.placed.id, req.history);
+    if (links.length === 0) return false;
+    const strategy = String(node.placed.config.compose ?? "scatter");
+    if (strategy === "queue") {
+      this.flags.unwired += 1;
+      this.fail(req, node, "partial");
+      return true;
+    }
+    if (strategy === "first" && links.length > 1 && this.level.num >= 12) {
+      this.flags.unwired += 1;
+      this.fail(req, node, "partial");
+      return true;
+    }
+    const calls = strategy === "first" ? links.slice(0, 1) : links;
+    req.phase = "child";
+    req.qLeft = calls.length;
+    this.parentOf.set(req.id, req);
+    if (strategy === "chain") {
+      req.pending = calls.slice(1);
+      this.spawnCall(req, calls[0]!);
+      return true;
+    }
+    req.pending = [];
+    for (const link of calls) this.spawnCall(req, link);
+    return true;
+  }
+
+  private spawnCall(parent: Req, link: { to: string; kind: LinkKind }): void {
+    const child = this.makeReq("http", parent.atId, link.to, parent.id, link.kind);
+    child.join = true;
+    child.history = [parent.atId];
+    this.reqs.push(child);
+  }
+
+  private spawnNextCall(parent: Req): void {
+    const next = parent.pending.shift();
+    if (!next) return;
+    this.spawnCall(parent, next);
+  }
+
+  private onJoin(req: Req): void {
+    const parent = this.parentOf.get(req.parentId!);
+    this.dropReq(req);
+    if (!parent) return;
+    parent.qLeft -= 1;
+    if (parent.pending.length > 0 && parent.qLeft > 0) {
+      this.spawnNextCall(parent);
+      return;
+    }
+    if (parent.qLeft <= 0) {
+      this.parentOf.delete(parent.id);
+      parent.pending = [];
+      const host = this.nodes.get(parent.atId);
+      if (
+        host &&
+        getComponent(host.defId).aggregates &&
+        !parent.storesDone &&
+        this.queryLinks(host.placed.id).length > 0
+      ) {
+        parent.storesDone = true;
+        this.launchStores(parent, host);
+        return;
+      }
+      this.sendBack(parent);
+    }
+  }
+
+  private launchStores(req: Req, node: RuntimeNode): void {
+    const stores = this.queryLinks(node.placed.id);
+    if (stores.length === 0) {
+      if (getComponent(node.defId).requiresStore) {
+        this.flags.nostore += 1;
+        this.fail(req, node, "nostore");
+      } else {
+        this.sendBack(req);
+      }
+      return;
+    }
+    const must = this.level.mustStores ?? [];
+    for (const defId of must) {
+      if (!stores.some((link) => this.nodes.get(link.to)?.defId === defId)) {
+        this.flags.nostore += 1;
+        this.fail(req, node, "nostore");
+        return;
+      }
+    }
+    const nPlus = node.placed.config.query === "nplusone";
+    if (nPlus) this.flags.n1 = true;
+    const shard = node.placed.config.shard;
+    const many = stores.length > 1 && shard !== "celebrity" && shard !== "even" && !nPlus;
+    const records = String(node.placed.config.records ?? "all");
+    if (many && records === "primary" && this.level.num >= 10) {
+      this.flags.unwired += 1;
+      this.fail(req, node, "partial");
+      return;
+    }
+    req.phase = "child";
+    this.parentOf.set(req.id, req);
+    if (!many || records === "primary") {
+      req.fanStores = false;
+      req.pending = [];
+      req.qLeft = node.placed.config.fan === "write" ? 10 : nPlus ? 12 : 1;
+      this.spawnQuery(req);
+      return;
+    }
+    if (records === "chain") {
+      req.fanStores = false;
+      req.qLeft = stores.length;
+      req.pending = stores.slice(1);
+      this.spawnStore(req, stores[0]!);
+      return;
+    }
+    req.fanStores = true;
+    req.pending = [];
+    req.qLeft = stores.length;
+    for (const link of stores) this.spawnStore(req, link);
+  }
+
+  private spawnStore(parent: Req, link: { to: string; kind: LinkKind }): void {
+    this.noteOwner(parent, link.to);
+    const q = this.makeReq("query", parent.atId, link.to, parent.id, link.kind);
+    q.history = [parent.atId];
+    this.reqs.push(q);
+  }
+
+  private rootReq(req: Req): Req {
+    let cur = req;
+    const seen = new Set<number>();
+    while (cur.parentId !== null && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      const next = this.parentOf.get(cur.parentId) ?? this.reqs.find((item) => item.id === cur.parentId);
+      if (!next) break;
+      cur = next;
+    }
+    return cur;
+  }
+
+  private noteOwner(parent: Req, storeId: string): void {
+    const owners = this.level.owners;
+    if (!owners || owners.length === 0) return;
+    const node = this.nodes.get(parent.atId);
+    if (!node || !owners.includes(node.defId)) return;
+    this.rootReq(parent).hits.push({ service: node.defId, store: storeId });
+  }
+
+  private ownersSatisfied(req: Req): boolean {
+    const owners = this.level.owners;
+    if (!owners || owners.length === 0) return true;
+    const seen = new Map<string, string>();
+    for (const hit of req.hits) {
+      const prev = seen.get(hit.store);
+      if (prev && prev !== hit.service) return false;
+      seen.set(hit.store, hit.service);
+    }
+    return owners.every((id) => req.hits.some((hit) => hit.service === id));
+  }
+
+  private maybePublish(req: Req): boolean {
+    const node = this.nodes.get(req.atId);
+    if (!node) return false;
+    const def = getComponent(node.defId);
+    if (def.aggregates || def.broadcast || def.machine !== "app") return false;
+    const topics = (this.outgoing.get(node.placed.id) ?? []).filter((link) => {
+      if (req.history.includes(link.to)) return false;
+      const next = this.nodes.get(link.to);
+      return !!next && getComponent(next.defId).broadcast;
+    });
+    if (topics.length === 0) return false;
+    req.phase = "child";
+    req.qLeft = topics.length;
+    req.pending = [];
+    this.parentOf.set(req.id, req);
+    for (const link of topics) this.spawnCall(req, link);
+    return true;
+  }
+
+  private startBroadcast(req: Req, node: RuntimeNode): boolean {
+    const subs = this.subscribers(node.placed.id, req.history);
+    if (subs.length === 0) return false;
+    req.phase = "child";
+    req.qLeft = subs.length;
+    req.pending = [];
+    this.parentOf.set(req.id, req);
+    for (const link of subs) this.spawnCall(req, link);
+    return true;
+  }
+
+  private subscribers(topicId: string, history: string[]): { to: string; kind: LinkKind }[] {
+    const out: { to: string; kind: LinkKind }[] = [];
+    for (const [from, links] of this.outgoing) {
+      if (history.includes(from)) continue;
+      for (const link of links) {
+        if (link.to !== topicId) continue;
+        const next = this.nodes.get(from);
+        if (!next) continue;
+        const def = getComponent(next.defId);
+        if (def.machine !== "app" || def.aggregates || def.broadcast) continue;
+        out.push({ to: from, kind: link.kind });
+      }
+    }
+    return out;
+  }
+
+  private queryLinks(from: string): { to: string; kind: LinkKind }[] {
+    return (this.outgoing.get(from) ?? []).filter((link) => {
+      if (link.kind !== "sql" && link.kind !== "redis") return false;
+      const next = this.nodes.get(link.to);
+      return !!next && getComponent(next.defId).role === "store";
+    });
+  }
+
   private spawnQuery(parent: Req): void {
     const node = this.nodes.get(parent.atId);
     if (!node) return;
-    const stores = this.targets(node.placed.id, "sql").filter((id) => {
-      const n = this.nodes.get(id);
-      return n && getComponent(n.defId).role === "store";
-    });
+    const stores = this.queryLinks(node.placed.id);
     if (stores.length === 0) {
       this.flags.nostore += 1;
       this.fail(parent, node, "nostore");
       return;
     }
-    const dest = this.rng.pick(stores);
-    const q = this.makeReq("query", parent.atId, dest, parent.id);
-    q.history = [parent.atId];
-    this.reqs.push(q);
+    const next = parent.pending.shift();
+    const dest =
+      next ??
+      (node.placed.config.shard === "celebrity" ? stores[0]! : this.rng.pick(stores));
+    this.spawnStore(parent, dest);
   }
 
   private sendBack(req: Req): void {
@@ -442,8 +712,9 @@ export class Simulation {
     this.launch(req, req.atId, prev, "http", true);
   }
 
-  private launch(req: Req, from: string, to: string, kind: Kind, back = false): void {
+  private launch(req: Req, from: string, to: string, kind: Kind, back = false, wire?: LinkKind): void {
     req.kind = kind;
+    if (wire) req.wire = wire;
     req.returning = back;
     req.phase = "move";
     req.fromId = from;
@@ -455,6 +726,10 @@ export class Simulation {
   }
 
   private complete(req: Req, ok: boolean): void {
+    if (ok && req.parentId === null && req.kind === "http" && !this.ownersSatisfied(req)) {
+      this.flags.unwired += 1;
+      ok = false;
+    }
     const ms = Math.max(1, (this.t - req.created) * 1000);
     this.metrics.push(this.t, ms, ok);
     if (ok) this.totalOk += 1;
@@ -466,7 +741,7 @@ export class Simulation {
 
   private fail(req: Req, node: RuntimeNode, _why: string): void {
     node.errCount += 1;
-    if (req.kind === "http") {
+    if (req.kind === "http" && req.parentId === null) {
       const ms = Math.max(40, (this.t - req.created) * 1000);
       this.metrics.push(this.t, ms, false);
       this.totalFail += 1;
@@ -501,14 +776,22 @@ export class Simulation {
   }
 
   private forward(req: Req, node: RuntimeNode): boolean {
-    const backs = this.targets(node.placed.id, "http").filter((id) => {
-      const n = this.nodes.get(id);
-      return n && getComponent(n.defId).role === "compute";
+    let backs = (this.outgoing.get(node.placed.id) ?? []).filter((link) => {
+      if (!SERVICE_KINDS.includes(link.kind)) return false;
+      const next = this.nodes.get(link.to);
+      return !!next && getComponent(next.defId).role === "compute";
     });
+    if (node.placed.config.route === "facade") {
+      backs = backs.filter((link) => getComponent(this.nodes.get(link.to)!.defId).aggregates);
+    } else if (node.placed.config.route === "direct") {
+      const door = backs.some((link) => getComponent(this.nodes.get(link.to)!.defId).aggregates);
+      const leaf = backs.some((link) => !getComponent(this.nodes.get(link.to)!.defId).aggregates);
+      if (door && leaf) return false;
+    }
     if (backs.length === 0) return false;
     const sticky = node.placed.config.balance === "sticky";
     const dest = sticky ? backs[0]! : this.rng.pick(backs);
-    this.launch(req, node.placed.id, dest, "http");
+    this.launch(req, node.placed.id, dest.to, "http", false, dest.kind);
     return true;
   }
 
@@ -526,14 +809,41 @@ export class Simulation {
       seen.add(id);
       const node = this.nodes.get(id);
       if (node) found.add(node.defId);
-      for (const hop of this.targets(id, "http")) queue.push(hop);
+      for (const kind of SERVICE_KINDS) {
+        for (const hop of this.targets(id, kind)) queue.push(hop);
+      }
     }
     return need.every((id) => found.has(id));
   }
 
+  private tokenCost(node: RuntimeNode): number {
+    if (node.placed.config.delivery === "blind" && this.trafficMult > 1.15) return 3;
+    return 1;
+  }
+
+  private extraDelay(node: RuntimeNode): number {
+    const cfg = node.placed.config;
+    const hot = this.trafficMult > 1.15;
+    if (cfg.order === "orphan") return 0.48;
+    if (cfg.quorum === "both") return 0.52;
+    if (cfg.call === "chain") return 0.5;
+    if (cfg.breaker === "wait" && hot) return 0.85;
+    if (cfg.window === "shuttered") return 0.45;
+    if (cfg.migration === "lock" && hot) return 0.55;
+    if (cfg.route === "old") return 0.5;
+    if (cfg.ship === "committee") return 0.5;
+    if (cfg.tenant === "shared" && hot) return 0.5;
+    if (cfg.charter === "nines") return 0.7;
+    return 0;
+  }
+
   private procTime(node: RuntimeNode, _req: Req): number {
+    const extra = this.extraDelay(node);
+    if (extra > 0) return extra;
     const def = getComponent(node.defId);
     if (def.role === "store") {
+      const family = this.familyDelay(node);
+      if (family > 0) return family;
       const cfg = node.placed.config;
       if (cfg.freshness === "stale") return 0.4;
       if (cfg.sync === "dual") return 0.36;
@@ -542,6 +852,16 @@ export class Simulation {
       return this.isIndexed(node) ? 0.012 : 0.17;
     }
     return def.baseLatencyMs / 1000;
+  }
+
+  private familyDelay(node: RuntimeNode): number {
+    const def = getComponent(node.defId);
+    if (!def.fit) return 0;
+    const allowed = lessonFits(this.level);
+    if (allowed.length === 0) return 0;
+    if (!allowed.includes(def.fit)) return 0.48;
+    if (!this.level.palette.includes(def.id) && missingLessonKnob(def, this.level)) return 0.42;
+    return 0;
   }
 
   private isIndexed(node: RuntimeNode): boolean {
