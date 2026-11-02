@@ -132,16 +132,18 @@ function fromHsl(h: number, s: number, l: number): RGB {
   return [f(0) * 255, f(8) * 255, f(4) * 255];
 }
 
-/** Bright face from the island accent and water, with a near-black edge from the cliff. */
+/** Saturated gradient from the island accent, with a near-black edge from the cliff. */
 export function honkStops(scene: { accent: number; water: number; cliff: number }): string[] {
-  const tint = mix(rgbOf(scene.accent), rgbOf(scene.water), 0.2);
+  const tint = mix(rgbOf(scene.accent), rgbOf(scene.water), 0.18);
   const [hue, sat] = hsl(tint);
-  const face = fromHsl(hue, Math.min(0.82, Math.max(sat, 0.62)), 0.64);
-  const top = fromHsl(hue, Math.min(0.7, Math.max(sat, 0.5)), 0.78);
+  const s = Math.min(0.92, Math.max(sat, 0.72));
+  const top = fromHsl((hue + 16) % 360, Math.min(0.9, s), 0.78);
+  const mid = fromHsl(hue, s, 0.64);
+  const face = fromHsl((hue + 360 - 14) % 360, Math.min(0.95, s + 0.05), 0.52);
   const ink: RGB = [7, 8, 10];
-  const edge = mix(rgbOf(scene.cliff), ink, 0.88);
-  const lip = mix(rgbOf(scene.cliff), ink, 0.74);
-  return [edge, lip, top, top, face, face, face, face].map(cssRgb);
+  const edge = mix(rgbOf(scene.cliff), ink, 0.9);
+  const lip = mix(rgbOf(scene.cliff), ink, 0.72);
+  return [edge, lip, top, mid, face, face, face, face].map(cssRgb);
 }
 
 function ellipse(x: number, z: number, cx: number, cz: number, rx: number, rz: number): boolean {

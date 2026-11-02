@@ -37,7 +37,7 @@ Lessons live in `src/levels`. The traffic simulation is `src/engine`. Pieces and
 
 ## Fonts
 
-The wordmark uses [Nabla](https://fonts.google.com/specimen/Nabla) (copyright 2022 The Nabla Project Authors). Headings use [Honk](https://fonts.google.com/specimen/Honk) (copyright 2023 The Honk Project Authors). The Latin color files are included in the site so phones get the color glyphs rather than a black outline. Body text uses [Source Sans 3](https://fonts.google.com/specimen/Source+Sans+3). All three are under the [SIL Open Font License](https://openfontlicense.org).
+The wordmark uses [Nabla](https://fonts.google.com/specimen/Nabla) (copyright 2022 The Nabla Project Authors). Headings use [Honk](https://fonts.google.com/specimen/Honk) (copyright 2023 The Honk Project Authors). Phones paint those color glyphs as one flat fill, so the site ships outline cuts and draws the gradients in CSS. Body text uses [Source Sans 3](https://fonts.google.com/specimen/Source+Sans+3). All three are under the [SIL Open Font License](https://openfontlicense.org).
 
 ## License
 

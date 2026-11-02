@@ -45,7 +45,7 @@ The behavior is `machine` on the component, plus a few flags.
 
 A source completes the visit. A crashed piece fails it. A cable the piece does not `accept` fails it as a protocol error. A gate can drop for fairness. A queue fails when its wait line is past the limit. Past that, saturation spends tokens and connection slots.
 
-`requiresStore` means the piece must query a database before it can answer. No SQL or Redis cable is a "no store" failure. `mustStores` on the lesson names the databases that cable has to reach.
+`requiresStore` means the piece must query a database before it can answer. No SQL or Redis cable is a "no store" failure. A lesson does not require a particular piece order. Traffic runs through whatever is cabled, and the coach explains the settings that are hurting the SLO.
 
 Several databases on one service are asked together by default (`records: all`), in parallel. `chain` asks them one after another and adds the latencies. `primary` fails the visit once the lesson is past the early ones. Sharding is pick-one: `celebrity` always uses the first store, `even` uses the seeded random pick. N+1 is twelve serial queries to one store, and it sets the n+1 flag the coach and the diagnosis read.
 
@@ -57,7 +57,7 @@ An API gateway with `route: direct` spreads to every compute backend. If that se
 
 `forgets` answers and keeps nothing. On a write-heavy lesson those writes are lost.
 
-`owners` on a lesson is the database-per-service check. Each named service must query a distinct store on that visit. A shared database, a missing owner, or a facade that queries the books itself fails the root visit.
+`owners` on a lesson names the services that should each query a database of their own. The coach explains a shared database or a missing service. It does not fail the visit for skipping a piece. The SLO is what passes or fails.
 
 ## The coach and the board
 
@@ -65,4 +65,4 @@ An API gateway with `route: direct` spreads to every compute backend. If that se
 
 `src/render/Board.ts` draws the island from the lesson scene. Water cells are not land, so a drop there does not place. The camera frames the land mask, not the full 12 by 8 grid, so a small island stays readable. Pipes are arched meshes. Their colors come from `src/catalog/cables.ts`.
 
-Heading colors are generated from the scene in `honkStops`: a bright mix of accent and water for the face, a near-black cliff for the edge. The wordmark stays Nabla and is not recolored per lesson.
+Heading colors come from `honkStops`: a saturated gradient of the scene accent, with a near-black edge. Phones and tablets paint color-font gradients as one flat fill, so the site uses outline cuts of Nabla and Honk and draws the gradient in CSS. The wordmark stays the Nabla gold-to-pink gradient and is not recolored per lesson.

@@ -42,56 +42,59 @@ body.dragging { cursor: grabbing; }
 #gameui > * { pointer-events: auto; }
 .hidden { display: none !important; }
 
-/* Latin color fonts. Phones otherwise receive an outline build that paints black. */
+/* Outline cuts of the color fonts. Phones paint COLRv1 as one flat fill, so the gradient is CSS. */
 @font-face {
-  font-family: Nabla;
+  font-family: "Nabla UI";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("./fonts/nabla.woff2") format("woff2");
+  src: url("./fonts/nabla-outline.woff2") format("woff2");
 }
 @font-face {
-  font-family: Honk;
+  font-family: "Honk UI";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("./fonts/honk.woff2") format("woff2");
-}
-@font-palette-values --nabla {
-  font-family: Nabla;
-  base-palette: 0;
-}
-@font-palette-values --honk-page {
-  font-family: Honk;
-  base-palette: 0;
-  override-colors:
-    0 #101418,
-    1 #1a2028,
-    2 #ffffff,
-    3 #f7fbff,
-    4 #eef6ff,
-    5 #e4f2ff,
-    6 #d9edff,
-    7 #d0e9ff;
+  src: url("./fonts/honk-outline.woff2") format("woff2");
 }
 h1, h2, h3, .inspect .name, .coach b {
-  font-family: Honk, "Trebuchet MS", sans-serif;
+  font-family: "Honk UI", "Trebuchet MS", sans-serif;
   margin: 0;
   font-weight: 400;
   letter-spacing: 0.01em;
   line-height: 1.2;
-  /* Own layer, so a scrolling panel does not flatten the color glyphs to black. */
-  transform: translateZ(0);
+  background-image: linear-gradient(
+    180deg,
+    var(--glyph-top, #7ee7ff) 0%,
+    var(--glyph-mid, #3aa0ff) 48%,
+    var(--glyph-face, #2454d6) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
 }
-.select-head h1 { font-palette: --honk-page; }
+.select-head h1 {
+  --glyph-edge: #101418;
+  --glyph-top: #8ef0ff;
+  --glyph-mid: #3cb4ff;
+  --glyph-face: #1f4fd0;
+}
 .boot h1, .kicker.wordmark {
-  font-family: Nabla, "Trebuchet MS", sans-serif;
-  font-palette: --nabla;
+  font-family: "Nabla UI", "Trebuchet MS", sans-serif;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
   line-height: 1.25;
-  transform: translateZ(0);
+  background-image: linear-gradient(102deg, #ffe14a 0%, #ff9a1a 32%, #ff4d3a 62%, #e43dff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  -webkit-text-stroke: 0.7px #1a1008;
+  paint-order: stroke fill;
 }
 
 .kicker {

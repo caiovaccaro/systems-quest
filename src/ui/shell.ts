@@ -39,7 +39,7 @@ export function mountShell(app: HTMLElement): UI {
       <div class="world-labels" id="labels"></div>
       <section class="layer boot" id="boot">
         <h1>systemsquest</h1>
-        <p>A little island of machines. Place the pieces, cable them, and watch real traffic cross the grid. The numbers tell you whether you kept your promise.</p>
+        <p>Place the pieces, cable them, and watch traffic. The numbers tell you whether the SLO holds.</p>
         <div class="boot-actions">
           <button class="btn primary" data-act="enter">Start learning</button>
         </div>
@@ -88,17 +88,17 @@ function countLabel(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
+export function glyphVars(scene: { accent: number; water: number; cliff: number }): string {
+  const stops = honkStops(scene);
+  const edge = stops[0] ?? "#101418";
+  const top = stops[2] ?? "#7ee7ff";
+  const mid = stops[3] ?? "#3aa0ff";
+  const face = stops[4] ?? "#2454d6";
+  return `--glyph-edge:${edge};--glyph-top:${top};--glyph-mid:${mid};--glyph-face:${face}`;
+}
+
 export function installLevelPalettes(): void {
-  let style = document.getElementById("level-palettes");
-  if (!(style instanceof HTMLStyleElement)) {
-    style = document.createElement("style");
-    style.id = "level-palettes";
-    document.head.appendChild(style);
-  }
-  style.textContent = CAMPAIGN.map((level) => {
-    const stops = honkStops(level.scene).map((color, i) => `${i} ${color}`).join(", ");
-    return `@font-palette-values --honk-${level.id} { font-family: Honk; base-palette: 0; override-colors: ${stops}; }`;
-  }).join("\n");
+  document.getElementById("level-palettes")?.remove();
 }
 
 export function renderSelect(el: HTMLElement, cleared: Set<string>): void {
@@ -116,7 +116,7 @@ export function renderSelect(el: HTMLElement, cleared: Set<string>): void {
         const locked = !l.playable;
         const done = cleared.has(l.id);
         return `
-          <button class="card ${done ? "cleared" : ""}" data-level="${l.id}" style="font-palette: --honk-${l.id}" ${locked ? "disabled" : ""}>
+          <button class="card ${done ? "cleared" : ""}" data-level="${l.id}" style="${glyphVars(l.scene)}" ${locked ? "disabled" : ""}>
             <div class="meta"><span>Lesson ${l.num} · ${l.rank}</span><span>${locked ? "Later" : done ? "Done" : "Open"}</span></div>
             <h3>${l.title}</h3>
             <p>${l.tease}</p>
@@ -136,13 +136,12 @@ export function renderBrief(el: HTMLElement, level: LevelDef, playing: boolean):
     .map((g) => `<div class="gloss"><b>${g.term}</b><span>${g.means}</span></div>`)
     .join("");
   el.innerHTML = `
-    <div class="modal lesson" style="font-palette: --honk-${level.id}">
+    <div class="modal lesson" style="${glyphVars(level.scene)}">
       <div class="rank">${level.rank} · Lesson ${level.num}</div>
       <h2>${level.title}</h2>
       <p class="lead">${level.brief}</p>
       <div class="facts">
-        <div><span>The island</span><b>${level.scene.place}</b></div>
-        <div><span>What you're building</span><b>${level.product}</b></div>
+        <div><span>System</span><b>${level.product}</b></div>
         <div><span>DAU · people per day</span><b>${level.dau}</b></div>
         <div><span>QPS · clicks per second</span><b>${level.qps}</b></div>
         <div><span>R/W · reads / writes</span><b>${level.readWrite}</b></div>
@@ -166,7 +165,7 @@ export function renderSuccess(el: HTMLElement, level: LevelDef, bullets: [string
   installLevelPalettes();
   el.classList.remove("hidden");
   el.innerHTML = `
-    <div class="modal success" style="font-palette: --honk-${level.id}">
+    <div class="modal success" style="${glyphVars(level.scene)}">
       <div class="success-mark">✓</div>
       <div class="rank">Promise kept</div>
       <h2 class="pass">${level.title}</h2>
@@ -266,7 +265,7 @@ export function renderInspect(el: HTMLElement, node: PlacedNode | null, view: No
       }</b></div>
     </div>
     ${fields}
-    ${node.locked ? `<p class="hint">The crowd stays where it is. Drag it onto a piece to connect.</p>` : `<button class="btn" data-act="delete">Remove</button>`}
+    ${node.locked ? `<p class="hint">Users stay put. Drag them onto a piece to connect.</p>` : `<button class="btn" data-act="delete">Remove</button>`}
   `;
 }
 

@@ -161,9 +161,9 @@ export interface LevelDef {
   palette: string[];
   /** Cables the player may pick for this lesson. */
   cables: LinkKind[];
-  /** HTTP path from People must visit each of these def ids. */
+  /** Kept for lesson notes. Traffic is not failed for skipping these ids. */
   mustHttp?: string[];
-  /** A store-backed app must SQL-cable every one of these def ids. */
+  /** Kept for lesson notes. A missing store does not fail the visit by itself. */
   mustStores?: string[];
   /** Each of these services must read and write a database of its own. */
   owners?: string[];

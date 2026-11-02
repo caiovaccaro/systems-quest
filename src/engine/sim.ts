@@ -42,8 +42,6 @@ interface Req {
   fanStores: boolean;
   /** Service calls finished; databases still have to be asked. */
   storesDone: boolean;
-  /** Owning services that wrote or read a database on this visit, and which one. */
-  hits: { service: string; store: string }[];
   waitLimit: number;
   holding: boolean;
   returning: boolean;
@@ -187,13 +185,6 @@ export class Simulation {
   private spawnHttp(): void {
     const users = this.findSource();
     if (!users) return;
-    if (!this.covers()) {
-      this.flags.unwired += 1;
-      this.failStat(users, 400);
-      this.metrics.push(this.t, 400, false);
-      this.totalFail += 1;
-      return;
-    }
     const dests = this.targets(users.placed.id, "http");
     if (dests.length === 0) {
       this.flags.unwired += 1;
@@ -231,7 +222,6 @@ export class Simulation {
       join: false,
       fanStores: false,
       storesDone: false,
-      hits: [],
       waitLimit: WAIT_TIMEOUT,
       holding: false,
       returning: false,
@@ -553,14 +543,6 @@ export class Simulation {
       }
       return;
     }
-    const must = this.level.mustStores ?? [];
-    for (const defId of must) {
-      if (!stores.some((link) => this.nodes.get(link.to)?.defId === defId)) {
-        this.flags.nostore += 1;
-        this.fail(req, node, "nostore");
-        return;
-      }
-    }
     const nPlus = node.placed.config.query === "nplusone";
     if (nPlus) this.flags.n1 = true;
     const shard = node.placed.config.shard;
@@ -594,42 +576,9 @@ export class Simulation {
   }
 
   private spawnStore(parent: Req, link: { to: string; kind: LinkKind }): void {
-    this.noteOwner(parent, link.to);
     const q = this.makeReq("query", parent.atId, link.to, parent.id, link.kind);
     q.history = [parent.atId];
     this.reqs.push(q);
-  }
-
-  private rootReq(req: Req): Req {
-    let cur = req;
-    const seen = new Set<number>();
-    while (cur.parentId !== null && !seen.has(cur.id)) {
-      seen.add(cur.id);
-      const next = this.parentOf.get(cur.parentId) ?? this.reqs.find((item) => item.id === cur.parentId);
-      if (!next) break;
-      cur = next;
-    }
-    return cur;
-  }
-
-  private noteOwner(parent: Req, storeId: string): void {
-    const owners = this.level.owners;
-    if (!owners || owners.length === 0) return;
-    const node = this.nodes.get(parent.atId);
-    if (!node || !owners.includes(node.defId)) return;
-    this.rootReq(parent).hits.push({ service: node.defId, store: storeId });
-  }
-
-  private ownersSatisfied(req: Req): boolean {
-    const owners = this.level.owners;
-    if (!owners || owners.length === 0) return true;
-    const seen = new Map<string, string>();
-    for (const hit of req.hits) {
-      const prev = seen.get(hit.store);
-      if (prev && prev !== hit.service) return false;
-      seen.set(hit.store, hit.service);
-    }
-    return owners.every((id) => req.hits.some((hit) => hit.service === id));
   }
 
   private maybePublish(req: Req): boolean {
@@ -726,10 +675,6 @@ export class Simulation {
   }
 
   private complete(req: Req, ok: boolean): void {
-    if (ok && req.parentId === null && req.kind === "http" && !this.ownersSatisfied(req)) {
-      this.flags.unwired += 1;
-      ok = false;
-    }
     const ms = Math.max(1, (this.t - req.created) * 1000);
     this.metrics.push(this.t, ms, ok);
     if (ok) this.totalOk += 1;
@@ -793,27 +738,6 @@ export class Simulation {
     const dest = sticky ? backs[0]! : this.rng.pick(backs);
     this.launch(req, node.placed.id, dest.to, "http", false, dest.kind);
     return true;
-  }
-
-  private covers(): boolean {
-    const need = this.level.mustHttp;
-    if (!need || need.length === 0) return true;
-    const users = this.findSource();
-    if (!users) return false;
-    const seen = new Set<string>();
-    const found = new Set<string>();
-    const queue = [users.placed.id];
-    while (queue.length > 0) {
-      const id = queue.pop()!;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const node = this.nodes.get(id);
-      if (node) found.add(node.defId);
-      for (const kind of SERVICE_KINDS) {
-        for (const hop of this.targets(id, kind)) queue.push(hop);
-      }
-    }
-    return need.every((id) => found.has(id));
   }
 
   private tokenCost(node: RuntimeNode): number {

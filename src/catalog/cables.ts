@@ -14,16 +14,16 @@ export const CABLES: CableDef[] = [
     id: "http",
     name: "HTTP cable",
     short: "HTTP",
-    blurb: "How a browser talks to a page. People send clicks over HTTP.",
-    hint: "Pick this, then drag People onto the laptop or app.",
+    blurb: "How a client talks to a service.",
+    hint: "Pick this, then drag Users onto a service.",
     color: 0xe07a5f,
   },
   {
     id: "sql",
     name: "SQL cable",
     short: "SQL",
-    blurb: "How an app asks a database for rows. Not a thing people speak.",
-    hint: "Pick this, then drag the app onto a relational database.",
+    blurb: "How a service queries a database. Clients do not speak it.",
+    hint: "Pick this, then drag the service onto a database.",
     color: 0x8d74b8,
   },
   {
@@ -31,7 +31,7 @@ export const CABLES: CableDef[] = [
     name: "gRPC cable",
     short: "gRPC",
     blurb: "How services talk to services. Browsers do not speak it.",
-    hint: "Drag one service onto another. People still need HTTP.",
+    hint: "Drag one service onto another. Users still need HTTP.",
     color: 0x3d9a6a,
   },
   {
@@ -39,7 +39,7 @@ export const CABLES: CableDef[] = [
     name: "Redis cable",
     short: "Redis",
     blurb: "How an app reads a cache. A cache is not a relational database.",
-    hint: "Drag the app onto Redis, Memcached, or the lantern cache.",
+    hint: "Drag the service onto Redis, Memcached, or a cache.",
     color: 0xd64545,
   },
   {

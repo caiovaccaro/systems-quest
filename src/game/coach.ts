@@ -9,23 +9,6 @@ export interface CoachNote {
   body: string;
 }
 
-function httpReachable(nodes: PlacedNode[], links: Link[], startId: string): Set<string> {
-  const seen = new Set<string>();
-  const found = new Set<string>();
-  const queue = [startId];
-  while (queue.length > 0) {
-    const id = queue.pop()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const node = nodes.find((n) => n.id === id);
-    if (node) found.add(node.defId);
-    for (const link of links) {
-      if (link.from === id && SERVICE_KINDS.includes(link.kind)) queue.push(link.to);
-    }
-  }
-  return found;
-}
-
 function wired(links: Link[], id: string): boolean {
   return links.some((link) => link.from === id || link.to === id);
 }
@@ -38,7 +21,7 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
     const missing = owners.filter((id) => !houses.some((n) => n.defId === id));
     if (missing.length > 0) {
       problems.push(
-        `This page reads and writes ${owners.map((id) => getComponent(id).name).join(" and ")}. Place each one. Each keeps a database of its own.`,
+        `This page reads ${owners.map((id) => getComponent(id).name).join(" and ")}. Each service needs its own database. Place the ones you want to try.`,
       );
     }
     const shelf = new Map<string, string>();
@@ -55,14 +38,14 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
     }
     if (shared) {
       problems.push(
-        "Those services are sharing one database. Give each house its own book. A backend for frontend calls the houses. Kafka carries a write so the other house can save it.",
+        "Those services share one database. Give each its own database, or publish the write on Kafka so the other service can save it.",
       );
     }
     const door = nodes.some((n) => getComponent(n.defId).aggregates && wired(links, n.id));
     const bus = nodes.some((n) => getComponent(n.defId).broadcast && wired(links, n.id));
     if (houses.length >= 2 && !door && !bus) {
       problems.push(
-        "Each service can see only its own book. For the page, put a backend for frontend in front and call every service. For the write, that same door can call them, or you can cable the services to Kafka and let the log deliver the change.",
+        "Each service can read only its own database. A backend for frontend can call every service. A service can also publish to Kafka so the other service writes its own copy.",
       );
     }
   }
@@ -84,43 +67,43 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
     const name = getComponent(sticky.defId).name;
     problems.push(
       backs < 2
-        ? `${name} sends every guest to a single backend. Place a second one, cable ${name} to it, and set it to share the line.`
-        : `${name} is still sending everyone to the first backend. Open it and choose share the line.`,
+        ? `${name} sends every request to one backend. Add another backend and set balancing to round robin.`
+        : `${name} is still pinned to the first backend. Set balancing to round robin.`,
     );
   }
   if (nodes.some((n) => n.config.freshness === "stale")) {
     problems.push(
-      "The echo pond is a moment behind the pen. Open it and choose read your own ink, or the writer cannot see the sentence they just wrote.",
+      "The read replica is serving a stale copy. Turn on read-your-writes, or the client that just saved will not see its own write.",
     );
   }
   if (nodes.some((n) => n.config.ttl === "flush")) {
     problems.push(
-      "Every lantern goes dark on the same minute. When the rush returns, the cache is empty all at once. Open it and let each jar expire on its own.",
+      "Every cache entry expires at the same time. That is a stampede. Jitter the TTLs.",
     );
   }
   if (nodes.some((n) => n.defId === "cdn" && n.config.cache === "none")) {
     problems.push(
-      "The postcard loft is reprinting every card. Open it and keep a public copy, or the little press will catch fire.",
+      "The CDN is not storing responses, so every request hits the origin.",
     );
   }
   if (nodes.some((n) => n.defId === "gate" && n.config.limit === "open")) {
     problems.push(
-      "The garden gate is wide open, so the pigeons walk in with the people. Open the gate and set the latch to be fair to people and rude to pigeons.",
+      "The rate limiter is open, so the spike reaches the app. Limit the extra callers.",
     );
   }
   if (nodes.some((n) => n.config.sync === "dual")) {
     problems.push(
-      "The booth writes the ledger and the card catalog as two separate hopes. Open the catalog and let the ledger publish through an outbox, so the drawers cannot miss a book.",
+      "Dual write can update one store and miss the other. Use an outbox so the primary publishes the change.",
     );
   }
   if (nodes.some((n) => n.config.order === "orphan")) {
     problems.push(
-      "The glass plate is saved before the album hears about it. Open the plate and write the row first, or the picture becomes an orphan.",
+      "The object is saved before the metadata row. Write the row first, or the object is an orphan.",
     );
   }
   if (nodes.some((n) => n.config.sessions === "desk")) {
     problems.push(
-      "Every traveler must wake the stamp. Open the customs house and share the key, so the doors can answer alone.",
+      "Every request calls the auth service. Share a key so the proxy can authorize locally.",
     );
   }
   const stall = nodes.find((n) => n.defId === "stall");
@@ -128,15 +111,15 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
     const bins = nodes.filter((n) => n.defId === "bin").length;
     if (stall.config.shard === "celebrity") {
       problems.push(
-        "Famous names all fall in the first bin. Open the stall and spread the names across every bin you cabled.",
+        "The shard key follows a hot value, so one shard takes the traffic. Hash across the shards you cabled.",
       );
     } else if (bins < 2) {
-      problems.push("One bin is still the whole market. Place a second bin and SQL-cable the stall to it.");
+      problems.push("One shard is still the whole dataset. Place another shard and SQL-cable the router to it.");
     }
   }
   if (nodes.some((n) => n.config.quorum === "both")) {
     problems.push(
-      "The ferry waits for both shores before anyone steps off. Open the far shore and keep the promise to this shore only.",
+      "The write waits for the remote replica. Local quorum is enough for this latency SLO.",
     );
   }
   for (const agg of nodes) {
@@ -212,52 +195,52 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
   }
   if (nodes.some((n) => n.config.call === "chain")) {
     problems.push(
-      "One loaf phones the mixer, the oven, and the till. Open the counter and serve from the one bench.",
+      "One request calls several services in series. Serve it in process.",
     );
   }
   if (nodes.some((n) => n.config.breaker === "wait")) {
     problems.push(
-      "The boathouse is still waiting on a boat that will not answer. Open it and trip the breaker.",
+      "The client waits out a dead dependency. Open the circuit breaker.",
     );
   }
   if (nodes.some((n) => n.config.window === "shuttered")) {
     problems.push(
-      "The inn is guessing in the dark and retrying. Open the shutters so you can see which visits are slow.",
+      "Slow requests are not traced, so retries hide the tail. Turn tracing on.",
     );
   }
   if (nodes.some((n) => n.config.delivery === "blind")) {
     problems.push(
-      "A retried letter is written again. Open the desk and require the idempotency key, so a repeat is the same letter.",
+      "A retry writes the record again. Require an idempotency key.",
     );
   }
   if (nodes.some((n) => n.config.migration === "lock")) {
     problems.push(
-      "The shelf locks the whole cupboard while it moves one jar. Open it and expand first: add the new shape, then move, then drop the old one.",
+      "The migration locks the table. Expand the schema, backfill, then drop the old column.",
     );
   }
   if (nodes.some((n) => n.config.fan === "write")) {
     problems.push(
-      "Every new note is pushed to every follower. Open the board and let people pull the feed when they arrive.",
+      "Fan-out on write touches every follower for each post. Fan-out on read when someone loads the feed.",
     );
   }
   if (nodes.some((n) => n.config.route === "old")) {
     problems.push(
-      "The lane still sends the town through the old mill. Open it and strangle: new visits go to the barn, the mill keeps the rest until it is empty.",
+      "The router still sends new traffic to the legacy service. Send new traffic to the replacement.",
     );
   }
   if (nodes.some((n) => n.config.ship === "committee")) {
     problems.push(
-      "Both houses must agree before a boat leaves. Open the span and give the crossing one owner.",
+      "Two owners must approve every request. Give the path a single owner.",
     );
   }
   if (nodes.some((n) => n.config.tenant === "shared")) {
     problems.push(
-      "A neighbor's sale is reading your table. Open the ward and put a wall between tenants.",
+      "Tenants share one table, so one tenant's load is everyone's outage. Isolate them.",
     );
   }
   if (nodes.some((n) => n.config.charter === "nines")) {
     problems.push(
-      "The charter promises five nines and every shore at once. This island cannot pay for that. Open it and write the promise you can keep.",
+      "The SLO promises five nines in every region. This budget cannot pay for that. Write the SLO you can keep.",
     );
   }
   return problems;
@@ -283,7 +266,7 @@ function choiceProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): st
     }
     if (def.role === "store" && def.fit && fits.length > 0 && !fits.includes(def.fit)) {
       push(
-        `${def.name} is a ${fitName(def.fit)}. This island keeps its promise with a ${fits.map(fitName).join(" or ")}. The wrong notebook makes every lookup slow.`,
+        `${def.name} is a ${fitName(def.fit)}. This lesson's data fits a ${fits.map(fitName).join(" or ")}. The mismatch makes every lookup slow.`,
       );
     }
   }
@@ -325,12 +308,12 @@ export function explain(input: {
     const other = users ? input.links.find((l) => l.from === users.id && l.kind !== "http") : undefined;
     return {
       tone: "bad",
-      title: other ? "People do not speak that" : "Clicks have nowhere to go",
+      title: other ? "Users do not speak that" : "Requests have nowhere to go",
       body: other
-        ? `Browsers speak HTTP. ${getCable(other.kind)?.name ?? "That cable"} is for machines talking to machines. Pick HTTP, then drag People onto the front door.${extra}`
+        ? `Browsers speak HTTP. ${getCable(other.kind)?.name ?? "That cable"} is for machines talking to machines. Pick HTTP, then drag Users onto the service.${extra}`
         : hasPiece
-          ? `Pick the HTTP cable in the tray, then drag People onto a piece. HTTP is how a browser asks for a page. Until that cable exists, every visit fails.${extra}`
-          : "Drag a piece from the tray onto the table. Then pick the HTTP cable and drag People onto it. People are already clicking.",
+          ? `Pick the HTTP cable, then drag Users onto a piece. Until that cable exists, every request fails.${extra}`
+          : "Drag a piece onto the board. Then pick the HTTP cable and drag Users onto it.",
     };
   }
 
@@ -338,22 +321,9 @@ export function explain(input: {
   if (targets.some((n) => getComponent(n.defId).role === "store")) {
     return {
       tone: "bad",
-      title: "People are talking to the database",
-      body: "A database stores rows. It does not serve a page. Pick HTTP again, drag People onto the database to unplug, then cable them to the app instead.",
+      title: "Users are talking to the database",
+      body: "A database stores rows. It does not serve the response. Pick HTTP, drag Users onto the database to unplug, then cable them to a service.",
     };
-  }
-
-  const mustHttp = input.level.mustHttp ?? [];
-  if (mustHttp.length > 0) {
-    const found = httpReachable(input.nodes, input.links, users.id);
-    const missing = mustHttp.filter((id) => !found.has(id)).map((id) => getComponent(id).name);
-    if (missing.length > 0) {
-      return {
-        tone: "bad",
-        title: "The path skips a building",
-        body: `People's clicks still never reach ${missing.join(" and ")}. Pick HTTP, then drag the piece closer to the crowd onto the piece farther along. The cable has to point that way.`,
-      };
-    }
   }
 
   if (needsSql) {
@@ -374,28 +344,10 @@ export function explain(input: {
       );
       return {
         tone: "bad",
-        title: "Nothing is remembering signups",
+        title: "Nothing is storing the write",
         body: hasHttpOnly
-          ? `HTTP cannot ask a database for rows. Pick the SQL cable, then drag the app onto Postgres.${settingNotes.length ? ` ${settingNotes.join(" ")}` : ""}`
-          : `The stall can greet a visitor, but it has nowhere to write. Pick the SQL cable, then drag it onto the notebook.${settingNotes.length ? ` ${settingNotes.join(" ")}` : ""}`,
-      };
-    }
-  }
-
-  const mustStores = input.level.mustStores ?? [];
-  if (mustStores.length > 0) {
-    const apps = input.nodes.filter((n) => getComponent(n.defId).requiresStore);
-    const missing = mustStores.filter(
-      (defId) =>
-        !apps.some((app) =>
-          input.links.some((l) => l.from === app.id && speaksStore(l.kind) && node(l.to)?.defId === defId),
-        ),
-    );
-    if (missing.length > 0) {
-      return {
-        tone: "bad",
-        title: "One book is not the whole library",
-        body: `SQL-cable the booth to ${missing.map((id) => getComponent(id).name).join(" and ")}. A catalog that never hears about new books is a second, wrong library.`,
+          ? `HTTP cannot query a database. Pick the SQL cable, then drag the service onto the database.${settingNotes.length ? ` ${settingNotes.join(" ")}` : ""}`
+          : `The service has nowhere to write. Pick the SQL cable, then drag it onto a database.${settingNotes.length ? ` ${settingNotes.join(" ")}` : ""}`,
       };
     }
   }
@@ -404,7 +356,7 @@ export function explain(input: {
   if (problems.length > 0) {
     const title =
       choiceNotes.length > 0 && knobNotes.length === 0
-        ? "Wrong piece for this island"
+        ? "Wrong piece for this lesson"
         : problems.length > 1
           ? "A few habits are breaking this"
           : "This setting will not hold";

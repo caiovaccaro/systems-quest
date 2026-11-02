@@ -7,7 +7,7 @@ import { nid, resetIds } from "../engine/ids";
 import { Simulation } from "../engine/sim";
 import type { HudSnapshot, LevelDef, Link, LinkKind, NodeView, PlacedNode } from "../engine/types";
 import { CAMPAIGN, getLevel } from "../levels/campaign";
-import { cssColor } from "../levels/island";
+import { cssColor, honkStops } from "../levels/island";
 import { iconURL } from "../render/icons";
 import { Board } from "../render/Board";
 import { explain } from "./coach";
@@ -326,8 +326,8 @@ export class Game {
             cables.length > 2
               ? "Every cable is a different language. HTTP is how people arrive. SQL, gRPC, Redis, AMQP, and Kafka are how machines talk. Pick one, then drag a piece onto another."
               : cables.some((c) => c.id === "sql")
-                ? "Connections have a language. Pick HTTP for People → app, or SQL for app → database, then drag one piece onto the other."
-                : "People reach the laptop over HTTP. Pick the HTTP cable in the tray, then drag People onto the laptop.",
+                ? "Pick HTTP for users to a service, or SQL for a service to a database, then drag one piece onto the other."
+                : "Users reach a server over HTTP. Pick the HTTP cable, then drag Users onto the server.",
         });
         return;
       }
@@ -392,7 +392,11 @@ export class Game {
     this.board.setScene(this.level.scene);
     document.documentElement.style.setProperty("--bg", cssColor(this.level.scene.water));
     installLevelPalettes();
-    this.ui.game.style.fontPalette = `--honk-${this.level.id}`;
+    const stops = honkStops(this.level.scene);
+    this.ui.game.style.setProperty("--glyph-edge", stops[0] ?? "#101418");
+    this.ui.game.style.setProperty("--glyph-top", stops[2] ?? "#7ee7ff");
+    this.ui.game.style.setProperty("--glyph-mid", stops[3] ?? "#3aa0ff");
+    this.ui.game.style.setProperty("--glyph-face", stops[4] ?? "#2454d6");
     this.selected = this.nodes[0]?.id ?? null;
     hideModal(this.ui.modal);
     this.ui.boot.classList.add("hidden");
@@ -567,7 +571,7 @@ export class Game {
     if (armed) this.ui.dockNote.textContent = `Tap a tile to place ${armed}.`;
     else if (this.cableTool) this.ui.dockNote.textContent = `${this.cableTool.toUpperCase()} cable. Drag one piece onto another.`;
     else if (selectedName) this.ui.dockNote.textContent = `${selectedName}. Open This piece to change it.`;
-    else this.ui.dockNote.textContent = "Open Pieces, tap one, then tap the island.";
+    else this.ui.dockNote.textContent = "Open Pieces, tap one, then tap the board.";
     this.ui.game.classList.toggle("sheet-palette", this.sheet === "palette");
     this.ui.game.classList.toggle("sheet-inspect", this.sheet === "inspect");
   }

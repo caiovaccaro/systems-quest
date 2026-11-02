@@ -51,7 +51,7 @@ const ttl: ConfigField = {
     { label: "All at the same minute", value: "flush" },
     { label: "Each copy on its own", value: "jitter" },
   ],
-  hint: "One shared expiry is a stampede: the rush comes back the moment every copy dies together.",
+  hint: "One shared expiry is a stampede: every client misses at the same moment.",
 };
 
 const freshness: ConfigField = {
@@ -430,7 +430,7 @@ const RAW = [
   piece({
     id: "etcd",
     name: "etcd",
-    blurb: "A small strongly consistent key-value store. Right for configuration. Wrong as the guestbook.",
+    blurb: "A small strongly consistent key-value store. Right for configuration. Wrong as the primary database.",
     category: "data",
     role: "store",
     machine: "store",
@@ -600,7 +600,7 @@ const RAW = [
   piece({
     id: "consul",
     name: "Consul",
-    blurb: "A service catalog and a small key-value store. It should know who is alive, not hold the guestbook.",
+    blurb: "A service catalog and a small key-value store. It should know who is alive, not hold the primary data.",
     category: "data",
     role: "store",
     machine: "store",
