@@ -1,7 +1,10 @@
 {
-  "name": "systems_quest",
+  "name": "systemsquest",
   "private": true,
   "version": "0.1.0",
+  "description": "A browser game that teaches system design by placing machines, cabling them, and watching traffic.",
+  "license": "MIT",
+  "author": "Caio Vaccaro",
   "type": "module",
   "scripts": {
     "dev": "vite",

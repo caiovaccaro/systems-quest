@@ -1,27 +1,40 @@
-# systems_quest
+# systemsquest
 
-A browser game that teaches system design by making you assemble a little town of machines, then running traffic across the grid until something breaks.
+A browser game that teaches system design. Each lesson is its own island. You place machines, cable them, and watch live traffic. A promise meter says whether the design held.
 
-## Run
+There are 26 lessons, from one laptop on a stoop to services that each keep their own book. The answers are in the play, not in this file.
+
+## Play
 
 ```bash
-npm i
+npm install
 npm run dev
 ```
 
-Open the local Vite URL (default `http://localhost:5173`).
+Open the URL Vite prints. The default is `http://localhost:5173`. The dev server also listens on your network, so a phone on the same Wi-Fi can use the Network URL.
 
-## What L1 teaches
+```bash
+npm run build
+npm run preview
+```
 
-One laptop. Drag it onto the island, pick the HTTP cable, and drag People onto it. Traffic is already running. Light load holds. A single computer is still a single point of failure.
-
-## What L2 teaches
-
-Split the app and the database. People reach the app over HTTP. The app reaches Postgres over SQL. The app starts with N+1 queries and the database has no index. The coach says so as soon as you place them. Fix both, then hold the promise through the signup spike.
+`build` typechecks, then writes `dist/`. Progress is stored in the browser under `systems_quest.cleared`. Nothing is sent to a server.
 
 ## Controls
 
-- Drag a piece from the tray onto the grid
-- Pick a cable, then drag one piece onto another to connect, or again to unplug
-- Drag a piece to move it
-- `Space` pause · `1` / `4` speed · `Z` undo · `Delete` remove
+- Drag a piece from the tray onto the island. On a small screen, open Pieces, tap one, then tap a tile.
+- Pick a cable, then drag one piece onto another to connect. Drag that pair again with the same cable to unplug.
+- Drag a placed piece to move it. `Z` undoes. `Delete` removes the selected piece.
+- `Space` pauses. `1` and `4` set the speed.
+
+## Layout
+
+Lessons live in `src/levels`. The traffic simulation is `src/engine`. Pieces and cables are `src/catalog`. The board is `src/render`. The screen around the board is `src/ui` and `src/game`.
+
+## Fonts
+
+The wordmark uses [Nabla](https://fonts.google.com/specimen/Nabla). Headings use [Honk](https://fonts.google.com/specimen/Honk). Body text uses [Source Sans 3](https://fonts.google.com/specimen/Source+Sans+3). All three are served by Google Fonts under the [SIL Open Font License](https://openfontlicense.org).
+
+## License
+
+[MIT](LICENSE).
