@@ -1,6 +1,7 @@
 import type { GlossaryItem, IslandShape, LevelDef, SceneDef } from "../engine/types";
 import { anchor } from "./island";
 import { LATE } from "./late";
+import { STRUCTURE } from "./structure";
 
 function crowd(shape: IslandShape): LevelDef["preplaced"] {
   const spot = anchor(shape);
@@ -646,7 +647,7 @@ const l10: LevelDef = {
   },
 };
 
-export const CAMPAIGN: LevelDef[] = [l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, ...LATE].map((level) => {
+export const CAMPAIGN: LevelDef[] = [l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, ...LATE, ...STRUCTURE].map((level) => {
   const budgeted = level.num < 11 ? level : { ...level, budget: Math.max(level.budget, 40 + level.num * 5) };
   const extra: GlossaryItem[] = [];
   if (budgeted.num >= 10) {

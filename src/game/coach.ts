@@ -243,6 +243,142 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
       "The SLO promises five nines in every region. This budget cannot pay for that. Write the SLO you can keep.",
     );
   }
+  problems.push(...styleProblems(nodes, links));
+  return problems;
+}
+
+function callsFrom(node: PlacedNode, links: Link[], nodes: PlacedNode[]): number {
+  return links.filter((link) => {
+    if (link.from !== node.id) return false;
+    if (link.kind !== "http" && link.kind !== "grpc" && link.kind !== "amqp" && link.kind !== "kafka") return false;
+    const to = nodes.find((n) => n.id === link.to);
+    return !!to && getComponent(to.defId).role === "compute";
+  }).length;
+}
+
+function sqlFrom(node: PlacedNode, links: Link[]): number {
+  return links.filter((link) => link.from === node.id && (link.kind === "sql" || link.kind === "redis")).length;
+}
+
+function logConsumers(node: PlacedNode, links: Link[], nodes: PlacedNode[]): number {
+  const targets = new Set(
+    links
+      .filter((link) => link.from === node.id && (link.kind === "kafka" || link.kind === "amqp"))
+      .map((link) => link.to),
+  );
+  if (targets.size === 0) return 0;
+  let count = 0;
+  for (const other of nodes) {
+    if (other.id === node.id) continue;
+    const def = getComponent(other.defId);
+    if (def.role !== "compute" || def.machine === "queue") continue;
+    if (links.some((link) => link.from === other.id && targets.has(link.to) && (link.kind === "kafka" || link.kind === "amqp"))) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function wiredQueues(links: Link[], nodes: PlacedNode[]): number {
+  return nodes.filter((node) => {
+    if (getComponent(node.defId).machine !== "queue") return false;
+    return links.some((link) => link.to === node.id);
+  }).length;
+}
+
+function otherCompute(node: PlacedNode, nodes: PlacedNode[]): number {
+  return nodes.filter((other) => {
+    if (other.id === node.id) return false;
+    const def = getComponent(other.defId);
+    return def.role === "compute" && def.machine !== "queue";
+  }).length;
+}
+
+function styleProblems(nodes: PlacedNode[], links: Link[]): string[] {
+  const problems: string[] = [];
+  for (const node of nodes) {
+    const cfg = node.config;
+    const calls = callsFrom(node, links, nodes);
+    const name = getComponent(node.defId).name;
+    if (cfg.stack === "skip") {
+      problems.push(`${name} calls the database and skips the domain service. Put the domain between the page and the database.`);
+    }
+    if (cfg.stack === "layered" && (sqlFrom(node, links) > 0 || calls === 0)) {
+      problems.push(`${name} still queries the database, or nothing sits between it and the data. Only the domain service should use SQL.`);
+    }
+    if (cfg.modules === "tangled") {
+      problems.push("The domains share tables. Give each module its own tables and one interface, inside this process.");
+    }
+    if (cfg.modules === "bounded" && calls > 0) {
+      problems.push("A second process is on the request path. Keep both modules in this process.");
+    }
+    if (cfg.pipe === "clump") {
+      problems.push("One filter validates, prices, and saves. Give each filter one job, in one direction.");
+    }
+    if (cfg.pipe === "filters" && calls !== 3) {
+      problems.push("Use three filters, one job each. Fewer puts the jobs back in one place. More hops miss the latency budget.");
+    }
+    if (cfg.plugins === "core") {
+      problems.push("Both features run inside the core on every request. Call a plug-in only when that request needs it.");
+    }
+    if (cfg.plugins === "contract" && (calls > 0 || otherCompute(node, nodes) < 2)) {
+      problems.push("Place both plug-ins beside the core. A plug-in cabled onto every request is back on the hot path.");
+    }
+    if (cfg.cut === "fine") {
+      problems.push("A service per function adds a hop to every call. A few coarse domain services fit this load.");
+    }
+    if (cfg.cut === "coarse" && (calls < 1 || calls > 3)) {
+      problems.push("One service saturates, and a long chain misses latency. Cable a few coarse domain services behind this API.");
+    }
+    if (cfg.split === "chatty") {
+      problems.push("Both services finish every request together. Cut on a boundary so one service answers.");
+    }
+    if (cfg.split === "bounded" && calls !== 1) {
+      problems.push("This request should be answered by one service. Cabling both keeps the shared transaction.");
+    }
+    if (cfg.busmode === "inline") {
+      problems.push("Consumer work runs inside the user request. Publish to the log and answer before the consumers finish.");
+    }
+    if (cfg.busmode === "log" && logConsumers(node, links, nodes) < 2) {
+      problems.push("The log has to keep the event, and both consumers have to be cabled to it. One consumer drops the other side.");
+    }
+    if (cfg.workflow === "sync") {
+      problems.push("The orchestrator is on the user path, so the page waits for every step. Move the workflow behind the request.");
+    }
+    if (cfg.workflow === "durable" && logConsumers(node, links, nodes) < 3) {
+      problems.push("Cable the three steps to a durable log. Without the log, a step is dropped. The user request stays in front.");
+    }
+    if (cfg.model === "shared") {
+      problems.push("Reads and writes share one schema, so a read spike blocks writes. Use a command store and a separate read model.");
+    }
+    if (cfg.model === "cqrs" && sqlFrom(node, links) < 2) {
+      problems.push("Cable the command store and the read model. A read of the write's own row uses the command store. Everything else uses the read model.");
+    }
+    if (cfg.data === "database") {
+      problems.push("Every read hits the database on the request path. Serve the spike from the in-memory grid and pump to the database after the response.");
+    }
+    if (cfg.data === "grid" && sqlFrom(node, links) < 1) {
+      problems.push("The data pump is missing, so the grid and the database diverge.");
+    }
+    if (cfg.taxonomy === "full") {
+      problems.push("Every request crosses the full taxonomy, and the engine is a single point of failure. Let the domain own the flow.");
+    }
+    if (cfg.taxonomy === "collapsed" && calls > 0) {
+      problems.push("Enterprise and infrastructure calls are still on the request path. Take them off it.");
+    }
+    if (cfg.brokers === "shared") {
+      problems.push("One broker carries both domains. A burst in one stalls the other. Give each domain its own broker.");
+    }
+    if (cfg.brokers === "split" && wiredQueues(links, nodes) < 2) {
+      problems.push("Cable each publisher to its own broker. One broker, or a broker with nobody publishing to it, is still shared fate.");
+    }
+    if (cfg.ops === "inside") {
+      problems.push("Metrics and policy run inside the service process. An operational restart takes the domain down. Put them in a sidecar.");
+    }
+    if (cfg.ops === "sidecar" && (calls > 0 || otherCompute(node, nodes) < 1)) {
+      problems.push("Place the sidecar beside the service and keep it off the request path. Waiting on it for every call misses latency.");
+    }
+  }
   return problems;
 }
 

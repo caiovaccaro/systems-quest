@@ -1,4 +1,5 @@
 import type { ComponentDef, LinkKind } from "../engine/types";
+import { STYLE_PIECES } from "./styles";
 import { TOOLBOX } from "./toolbox";
 
 export const COMPONENTS: ComponentDef[] = [
@@ -1041,6 +1042,7 @@ export const COMPONENTS: ComponentDef[] = [
   },
 ];
 
+for (const extra of STYLE_PIECES) COMPONENTS.push(extra);
 for (const extra of TOOLBOX) COMPONENTS.push(extra);
 
 const FITS: Record<string, string> = {

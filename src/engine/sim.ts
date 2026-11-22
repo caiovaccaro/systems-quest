@@ -745,6 +745,57 @@ export class Simulation {
     return 1;
   }
 
+  private outs(node: RuntimeNode): { to: string; kind: LinkKind }[] {
+    return this.outgoing.get(node.placed.id) ?? [];
+  }
+
+  private sqlLinks(node: RuntimeNode): number {
+    return this.outs(node).filter((link) => link.kind === "sql" || link.kind === "redis").length;
+  }
+
+  /** Other compute pieces cabled to the same log this node publishes to. */
+  private logConsumers(node: RuntimeNode): number {
+    const targets = new Set(
+      this.outs(node)
+        .filter((link) => link.kind === "kafka" || link.kind === "amqp")
+        .map((link) => link.to),
+    );
+    if (targets.size === 0) return 0;
+    let count = 0;
+    for (const [from, links] of this.outgoing) {
+      if (from === node.placed.id) continue;
+      const other = this.nodes.get(from);
+      if (!other || getComponent(other.defId).role !== "compute") continue;
+      if (getComponent(other.defId).machine === "queue") continue;
+      if (links.some((link) => targets.has(link.to) && (link.kind === "kafka" || link.kind === "amqp"))) count += 1;
+    }
+    return count;
+  }
+
+  /** Queues that some other piece actually publishes to. */
+  private wiredQueues(): number {
+    let count = 0;
+    for (const node of this.nodes.values()) {
+      if (getComponent(node.defId).machine !== "queue") continue;
+      for (const links of this.outgoing.values()) {
+        if (links.some((link) => link.to === node.placed.id)) {
+          count += 1;
+          break;
+        }
+      }
+    }
+    return count;
+  }
+
+  private otherCompute(node: RuntimeNode): number {
+    let count = 0;
+    for (const other of this.nodes.values()) {
+      if (other.placed.id === node.placed.id) continue;
+      if (getComponent(other.defId).role === "compute" && getComponent(other.defId).machine !== "queue") count += 1;
+    }
+    return count;
+  }
+
   private extraDelay(node: RuntimeNode): number {
     const cfg = node.placed.config;
     const hot = this.trafficMult > 1.15;
@@ -758,6 +809,33 @@ export class Simulation {
     if (cfg.ship === "committee") return 0.5;
     if (cfg.tenant === "shared" && hot) return 0.5;
     if (cfg.charter === "nines") return 0.7;
+    const calls = this.serviceLinks(node.placed.id, []).length;
+    if (cfg.stack === "skip") return 0.78;
+    if (cfg.stack === "layered" && (this.sqlLinks(node) > 0 || calls === 0)) return 0.78;
+    if (cfg.modules === "tangled") return 0.78;
+    if (cfg.modules === "bounded" && calls > 0) return 0.78;
+    if (cfg.pipe === "clump") return 0.78;
+    if (cfg.pipe === "filters" && calls !== 3) return 0.78;
+    if (cfg.plugins === "core") return 0.78;
+    if (cfg.plugins === "contract" && (calls > 0 || this.otherCompute(node) < 2)) return 0.78;
+    if (cfg.cut === "fine") return 0.78;
+    if (cfg.cut === "coarse" && (calls < 1 || calls > 3)) return 0.78;
+    if (cfg.split === "chatty") return 0.78;
+    if (cfg.split === "bounded" && calls !== 1) return 0.78;
+    if (cfg.busmode === "inline") return 0.78;
+    if (cfg.busmode === "log" && this.logConsumers(node) < 2) return 0.78;
+    if (cfg.workflow === "sync") return 0.78;
+    if (cfg.workflow === "durable" && this.logConsumers(node) < 3) return 0.78;
+    if (cfg.model === "shared") return 0.78;
+    if (cfg.model === "cqrs" && this.sqlLinks(node) < 2) return 0.78;
+    if (cfg.data === "database") return 0.78;
+    if (cfg.data === "grid" && this.sqlLinks(node) < 1) return 0.78;
+    if (cfg.taxonomy === "full") return 0.78;
+    if (cfg.taxonomy === "collapsed" && calls > 0) return 0.78;
+    if (cfg.brokers === "shared") return 0.78;
+    if (cfg.brokers === "split" && this.wiredQueues() < 2) return 0.78;
+    if (cfg.ops === "inside") return 0.78;
+    if (cfg.ops === "sidecar" && (calls > 0 || this.otherCompute(node) < 1)) return 0.78;
     return 0;
   }
 

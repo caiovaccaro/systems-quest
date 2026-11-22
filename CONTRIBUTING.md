@@ -59,6 +59,8 @@ An API gateway with `route: direct` spreads to every compute backend. If that se
 
 `owners` on a lesson names the services that should each query a database of their own. The coach explains a shared database or a missing service. It does not fail the visit for skipping a piece. The SLO is what passes or fails.
 
+Lessons 27–39 are the architecture styles. Each one has a setting that starts in the failing shape: a page that skips the domain, shared tables, one filter doing three jobs, plug-ins inside the core, a service per function, two services on every request, consumers inside the request, an orchestrator on the request, one store for reads and writes, the database on the spike, the full SOA taxonomy, one broker for two domains, and operations inside the process. Flipping the setting removes that delay. A few of the good settings still miss latency until the board matches the style: three filters, both plug-ins placed and off the hot path, one service behind the edge, both consumers on the log, three steps on the log, a command store and a read model, a data pump, two wired brokers, or a sidecar that is placed and not on the request. Missing pieces are not a hard fail. The coach names the setting, and the SLO passes or fails.
+
 ## The coach and the board
 
 `src/game/coach.ts` reads the board, not the clock, for setting mistakes: a shared database, a gateway walking past a facade, N+1, a missing index, and the rest. It reads the simulation only for the live diagnosis once traffic has a sample.

@@ -2,7 +2,7 @@
 
 A browser game that teaches system design. Each lesson is its own island. You place machines, cable them, and watch live traffic. A promise meter says whether the design held.
 
-There are 26 lessons, from one laptop on a stoop to services that each keep their own book. The answers are in the play, not in this file.
+There are 39 lessons. The answers are in the play, not in this file.
 
 ## Play
 
