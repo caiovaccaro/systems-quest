@@ -420,12 +420,20 @@ export function explain(input: {
   hud: HudSnapshot | null;
   diagnosis: Diagnosis | "warming" | null;
   won: boolean;
+  revealed?: boolean;
 }): CoachNote {
   if (input.won) {
     return {
       tone: "good",
       title: "You kept the promise",
       body: "The slowest visits stayed fast enough, and almost nobody saw an error. That is the whole job.",
+    };
+  }
+  if (input.revealed) {
+    return {
+      tone: "good",
+      title: "One layout that holds",
+      body: "These pieces and settings meet the SLO. Start over to clear the board and try it yourself.",
     };
   }
 

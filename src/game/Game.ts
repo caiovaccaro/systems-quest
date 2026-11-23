@@ -10,6 +10,7 @@ import { CAMPAIGN, getLevel } from "../levels/campaign";
 import { cssColor, honkStops } from "../levels/island";
 import { iconURL } from "../render/icons";
 import { Board } from "../render/Board";
+import { layoutAnswer } from "./answers";
 import { explain } from "./coach";
 import { loadCleared, saveCleared } from "./progress";
 import {
@@ -57,6 +58,7 @@ export class Game {
   private pieceDrag: { id: string; sx: number; sy: number; moved: boolean } | null = null;
   private trayDrag: { id: string; sx: number; sy: number; moved: boolean } | null = null;
   private sheet: "" | "palette" | "inspect" = "";
+  private revealed = false;
 
   constructor(app: HTMLElement) {
     this.ui = mountShell(app);
@@ -108,6 +110,8 @@ export class Game {
     if (act === "x1") this.timeScale = 1;
     if (act === "x4") this.timeScale = 4;
     if (act === "retry") this.enterLevel();
+    if (act === "scratch") this.enterLevel();
+    if (act === "answer") this.revealAnswer();
     if (act === "next") this.nextLevel();
     if (act === "delete") this.deleteSelected();
     if (act === "sheet") {
@@ -122,6 +126,7 @@ export class Game {
     if (!(t instanceof HTMLSelectElement || t instanceof HTMLInputElement)) return;
     const key = t.getAttribute("data-cfg");
     if (!key || !this.selected || this.celebrating) return;
+    this.revealed = false;
     const node = this.nodes.find((n) => n.id === this.selected);
     if (!node || node.locked) return;
     this.pushUndo();
@@ -376,6 +381,8 @@ export class Game {
     this.screen = "play";
     this.play = "live";
     this.celebrating = false;
+    this.briefing = false;
+    this.revealed = false;
     this.tool = "";
     this.cableTool = "";
     resetIds();
@@ -413,8 +420,27 @@ export class Game {
     this.refreshAll();
   }
 
+  private revealAnswer(): void {
+    if (!this.level) return;
+    if (this.screen !== "play") this.enterLevel();
+    if (!this.level) return;
+    const users = this.nodes.find((n) => getComponent(n.defId).role === "source");
+    if (!users) return;
+    this.celebrating = false;
+    this.revealed = true;
+    this.pushUndo();
+    const laid = layoutAnswer(this.level, users);
+    this.nodes = laid.nodes;
+    this.links = laid.links;
+    this.selected = laid.nodes.find((n) => n.id !== users.id)?.id ?? users.id;
+    this.play = "live";
+    hideModal(this.ui.modal);
+    this.commit();
+  }
+
   private place(defId: string, x: number, z: number): void {
     if (!this.level || this.celebrating) return;
+    this.revealed = false;
     if (this.nodes.some((n) => n.x === x && n.z === z)) return;
     const def = getComponent(defId);
     if (!def.placeable) return;
@@ -442,6 +468,7 @@ export class Game {
   }
 
   private toggleLink(a: string, b: string, kind: LinkKind): "add" | "remove" {
+    this.revealed = false;
     const existing = this.links.find(
       (l) => (l.from === a && l.to === b) || (l.from === b && l.to === a),
     );
@@ -468,6 +495,7 @@ export class Game {
     if (this.celebrating || this.screen !== "play" || !this.selected) return;
     const node = this.nodes.find((n) => n.id === this.selected);
     if (!node || node.locked) return;
+    this.revealed = false;
     sfx.unplug();
     this.pushUndo();
     this.nodes = this.nodes.filter((n) => n.id !== node.id);
@@ -593,6 +621,7 @@ export class Game {
         hud: this.hud,
         diagnosis: this.sim ? this.sim.liveDiagnosis() : "warming",
         won: this.celebrating,
+        revealed: this.revealed,
       }),
     );
   }

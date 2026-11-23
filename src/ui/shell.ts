@@ -155,7 +155,8 @@ export function renderBrief(el: HTMLElement, level: LevelDef, playing: boolean):
       <p class="war">You can ignore: ${level.nonGoals}</p>
       <div class="modal-actions">
         <button class="btn primary" data-act="design">${playing ? "Back to the board" : "Start building"}</button>
-        ${playing ? "" : `<button class="btn" data-act="levels">All lessons</button>`}
+        <button class="btn" data-act="answer">Show answer</button>
+        ${playing ? `<button class="btn" data-act="scratch">Start over</button>` : `<button class="btn" data-act="levels">All lessons</button>`}
       </div>
     </div>
   `;
@@ -340,6 +341,8 @@ export function renderHud(
 export function renderControls(el: HTMLElement, paused: boolean): void {
   el.innerHTML = `
     <button class="btn" data-act="lesson">Lesson</button>
+    <button class="btn" data-act="answer">Show answer</button>
+    <button class="btn" data-act="scratch">Start over</button>
     <button class="btn" data-act="pause">${paused ? "Resume" : "Pause"}</button>
     <button class="btn" data-act="x1">1x</button>
     <button class="btn" data-act="x4">4x</button>
