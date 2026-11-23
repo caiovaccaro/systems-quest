@@ -1,7 +1,7 @@
 import { defaultConfig, getComponent } from "../catalog/components";
 import { nid } from "../engine/ids";
 import type { LevelDef, Link, LinkKind, PlacedNode } from "../engine/types";
-import { anchor, isLand } from "../levels/island";
+import { isLand } from "../levels/island";
 
 type Cfg = Record<string, string | number | boolean>;
 
@@ -294,33 +294,185 @@ const ANSWERS: Record<string, Answer> = {
   ),
 };
 
-function spareLand(level: LevelDef, users: PlacedNode): { x: number; z: number }[] {
-  const spot = anchor(level.scene.shape);
-  const cells: { x: number; z: number }[] = [];
+type Cell = { x: number; z: number };
+
+function landCells(level: LevelDef): Cell[] {
+  const cells: Cell[] = [];
   for (let z = 0; z < 8; z++) {
     for (let x = 0; x < 12; x++) {
-      if ((x === users.x && z === users.z) || (x === spot.x && z === spot.z)) continue;
-      if (!isLand(level.scene.shape, x, z)) continue;
-      cells.push({ x, z });
+      if (isLand(level.scene.shape, x, z)) cells.push({ x, z });
     }
   }
-  cells.sort((a, b) => a.x - b.x || a.z - b.z);
   return cells;
 }
 
-/** Place the lesson's answer on free land, keeping the Users piece where it is. */
+function hypot(x: number, z: number): number {
+  return Math.hypot(x, z);
+}
+
+/** Walk the cables from Users so each hop sits further along the island, with side pieces off that line. */
+function seatPieces(level: LevelDef, users: PlacedNode, spec: Answer): Map<string, Cell> {
+  const land = landCells(level);
+  const byKey = (x: number, z: number) => `${x},${z}`;
+  const taken = new Set<string>([byKey(users.x, users.z)]);
+  const seats = new Map<string, Cell>([["users", { x: users.x, z: users.z }]]);
+
+  let far = { x: users.x, z: users.z };
+  for (const cell of land) {
+    if (hypot(cell.x - users.x, cell.z - users.z) > hypot(far.x - users.x, far.z - users.z)) far = cell;
+  }
+  const span = hypot(far.x - users.x, far.z - users.z) || 1;
+  const axis = { x: (far.x - users.x) / span, z: (far.z - users.z) / span };
+  const side = { x: -axis.z, z: axis.x };
+
+  const next = new Map<string, string[]>();
+  const linked = new Set<string>();
+  const add = (from: string, to: string) => {
+    const list = next.get(from) ?? [];
+    if (!list.includes(to)) list.push(to);
+    next.set(from, list);
+    linked.add(from);
+    linked.add(to);
+  };
+  for (const [from, to] of spec.links) {
+    add(from, to);
+    add(to, from);
+  }
+  const pieceOrder = new Map(spec.pieces.map((piece, index) => [piece.key, index]));
+  const seen = new Set<string>(["users"]);
+  const kids = new Map<string, string[]>();
+  const queue = ["users"];
+  while (queue.length) {
+    const key = queue.shift()!;
+    const children: string[] = [];
+    for (const other of next.get(key) ?? []) {
+      if (seen.has(other)) continue;
+      seen.add(other);
+      children.push(other);
+      queue.push(other);
+    }
+    children.sort((a, b) => (pieceOrder.get(a) ?? 0) - (pieceOrder.get(b) ?? 0));
+    kids.set(key, children);
+  }
+  const extraRoots: string[] = [];
+  for (const piece of spec.pieces) {
+    if (seen.has(piece.key) || !linked.has(piece.key)) continue;
+    extraRoots.push(piece.key);
+    seen.add(piece.key);
+    const pending = [piece.key];
+    while (pending.length) {
+      const key = pending.shift()!;
+      const children: string[] = [];
+      for (const other of next.get(key) ?? []) {
+        if (seen.has(other)) continue;
+        seen.add(other);
+        children.push(other);
+        pending.push(other);
+      }
+      children.sort((a, b) => (pieceOrder.get(a) ?? 0) - (pieceOrder.get(b) ?? 0));
+      kids.set(key, children);
+    }
+  }
+  if (extraRoots.length) kids.set("users", [...(kids.get("users") ?? []), ...extraRoots]);
+  const door = (kids.get("users") ?? [])[0];
+
+  const claim = (ideal: Cell): Cell => {
+    const free = land.filter((cell) => !taken.has(byKey(cell.x, cell.z)));
+    if (free.length === 0) throw new Error(`${level.id} ran out of land`);
+    const spaced = free.filter((cell) => {
+      for (const seat of seats.values()) {
+        if (hypot(cell.x - seat.x, cell.z - seat.z) < 1.7) return false;
+      }
+      return true;
+    });
+    const pool = spaced.length > 0 ? spaced : free;
+    const gap = (cell: Cell) => {
+      let best = 99;
+      for (const seat of seats.values()) best = Math.min(best, hypot(cell.x - seat.x, cell.z - seat.z));
+      return best;
+    };
+    pool.sort((a, b) => {
+      const da = hypot(a.x - ideal.x, a.z - ideal.z);
+      const db = hypot(b.x - ideal.x, b.z - ideal.z);
+      if (Math.abs(da - db) > 0.75) return da - db;
+      return gap(b) - gap(a);
+    });
+    const cell = pool[0]!;
+    taken.add(byKey(cell.x, cell.z));
+    return cell;
+  };
+
+  const stride = 2.2;
+  const placeChildren = (key: string) => {
+    const parent = seats.get(key);
+    if (!parent) return;
+    const children = kids.get(key) ?? [];
+    const branches = children.filter((child) => (kids.get(child) ?? []).length > 0);
+    const leaves = children.filter((child) => (kids.get(child) ?? []).length === 0);
+    if (branches.length === 0) {
+      const count = leaves.length;
+      leaves.forEach((child, index) => {
+        const lane = index - (count - 1) / 2;
+        const cell = claim({
+          x: parent.x + axis.x * stride + side.x * lane * stride,
+          z: parent.z + axis.z * stride + side.z * lane * stride,
+        });
+        seats.set(child, cell);
+      });
+      return;
+    }
+    branches.forEach((child, index) => {
+      const lane = index === 0 ? 0 : (index % 2 === 1 ? 1 : -1) * Math.ceil(index / 2);
+      const cell = claim({
+        x: parent.x + axis.x * stride + side.x * lane * stride,
+        z: parent.z + axis.z * stride + side.z * lane * stride,
+      });
+      seats.set(child, cell);
+      placeChildren(child);
+    });
+    leaves.forEach((child, index) => {
+      const sign = index % 2 === 0 ? 1 : -1;
+      const mag = Math.ceil((index + 1) / 2);
+      const cell = claim({
+        x: parent.x + side.x * sign * mag * stride,
+        z: parent.z + side.z * sign * mag * stride,
+      });
+      seats.set(child, cell);
+    });
+  };
+  placeChildren("users");
+
+  const host = (door && seats.get(door)) || seats.get("users")!;
+  spec.pieces
+    .filter((piece) => !linked.has(piece.key))
+    .forEach((piece, index) => {
+      const sign = index % 2 === 0 ? 1 : -1;
+      const mag = Math.ceil((index + 1) / 2);
+      const cell = claim({
+        x: host.x + side.x * sign * mag * stride,
+        z: host.z + side.z * sign * mag * stride,
+      });
+      seats.set(piece.key, cell);
+    });
+
+  for (const piece of spec.pieces) {
+    if (seats.has(piece.key)) continue;
+    const cell = claim({ x: users.x + axis.x * stride, z: users.z + axis.z * stride });
+    seats.set(piece.key, cell);
+  }
+  return seats;
+}
+
+/** Place the lesson's answer along the island, in cable order, keeping Users where they are. */
 export function layoutAnswer(level: LevelDef, users: PlacedNode): { nodes: PlacedNode[]; links: Link[] } {
   const spec = ANSWERS[level.id];
   if (!spec) throw new Error(`no answer for ${level.id}`);
-  const cells = spareLand(level, users);
-  if (cells.length < spec.pieces.length) {
-    throw new Error(`${level.id} needs ${spec.pieces.length} tiles and has ${cells.length}`);
-  }
+  const seats = seatPieces(level, users, spec);
   const ids = new Map<string, string>([["users", users.id]]);
   const nodes: PlacedNode[] = [{ ...users }];
-  spec.pieces.forEach((piece, i) => {
-    const cell = cells[i];
-    if (!cell) throw new Error("tile");
+  for (const piece of spec.pieces) {
+    const cell = seats.get(piece.key);
+    if (!cell) throw new Error(`no tile for ${piece.key}`);
     const id = nid(piece.def);
     ids.set(piece.key, id);
     nodes.push({
@@ -331,7 +483,7 @@ export function layoutAnswer(level: LevelDef, users: PlacedNode): { nodes: Place
       locked: false,
       config: { ...defaultConfig(getComponent(piece.def)), ...piece.cfg },
     });
-  });
+  }
   const links: Link[] = spec.links.map(([from, to, kind]) => {
     const a = ids.get(from);
     const b = ids.get(to);
