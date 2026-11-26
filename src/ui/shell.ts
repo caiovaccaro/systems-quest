@@ -202,11 +202,15 @@ export function renderPalette(
     { title: "Queues and logs", items: defs.filter((d) => d.category === "queue") },
     { title: "Proxies and edges", items: defs.filter((d) => d.category === "network") },
   ].filter((group) => group.items.length > 0);
-  const button = (d: ComponentDef) => `
-      <button class="tool" data-tool="${d.id}">
-        <img src="${iconURL(d.id)}" alt="" />
-        <div>${d.name}<small>$${d.cost} / mo</small></div>
+  const button = (d: ComponentDef) => {
+    const short = cost + d.cost - budget;
+    const pricey = short > 0;
+    return `
+      <button class="tool${pricey ? " unaffordable" : ""}" data-tool="${d.id}">
+        <img src="${iconURL(d.id)}" alt="" draggable="false" />
+        <div>${d.name}<small>${pricey ? `$${d.cost} / mo · over budget by $${short}` : `$${d.cost} / mo`}</small></div>
       </button>`;
+  };
   el.innerHTML = `
     <button class="btn sheet-done" data-act="sheet" data-sheet="" type="button">Done</button>
     <h2>Pieces · ${defs.length}</h2>

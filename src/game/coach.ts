@@ -100,7 +100,7 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
   }
   if (nodes.some((n) => n.config.ttl === "flush")) {
     problems.push(
-      "Every cache entry expires at the same time. That is a stampede. Jitter the TTLs.",
+      "Every key expires at the same moment. That is a stampede: every client misses together and the application does the whole read. Set Expiry to jitter so each key expires on its own. A miss then refills one key, and the others still hit.",
     );
   }
   if (nodes.some((n) => n.defId === "cdn" && n.config.cache === "none")) {

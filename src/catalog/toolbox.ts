@@ -44,14 +44,14 @@ const sticky: ConfigField = {
 
 const ttl: ConfigField = {
   key: "ttl",
-  label: "When the copies expire",
+  label: "Expiry",
   type: "enum",
   value: "flush",
   options: [
-    { label: "All at the same minute", value: "flush" },
-    { label: "Each copy on its own", value: "jitter" },
+    { label: "One expiry for every key", value: "flush" },
+    { label: "Jitter: each key expires on its own", value: "jitter" },
   ],
-  hint: "One shared expiry is a stampede: every client misses at the same moment.",
+  hint: "Jitter adds a small random offset to each key. One key misses and is refilled. A shared expiry drops every key at once, so every client misses together and the application does the whole read.",
 };
 
 const freshness: ConfigField = {
@@ -213,7 +213,7 @@ const RAW = [
   piece({
     id: "redisbox",
     name: "Redis",
-    blurb: "A key-value cache that answers from memory. It is not the book of record, and it does not speak SQL.",
+    blurb: "An in-memory key-value cache. Each answer lives until its TTL. A shared expiry drops every key at once.",
     category: "cache",
     role: "store",
     machine: "store",

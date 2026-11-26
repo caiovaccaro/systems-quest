@@ -11,7 +11,7 @@ There are 39 lessons. The winning layouts are in the play, not in this file.
 3. **Vertical scale.** The arrival rate passes the small server. A larger server is the same service with more capacity, and it is still one machine.
 4. **Load balancing.** One app server saturates. A load balancer can spread the traffic. Sticky pins every request to the first backend.
 5. **Read-your-writes.** Clients write to MySQL, then immediately read. A replica can serve that read. A stale one does not contain the write.
-6. **Cache stampede.** A shared expiry drops every key at once, so every client misses together.
+6. **Cache stampede.** Redis keeps each answer until its TTL. One shared expiry drops every key at once. Jitter gives each key its own expiry, so a miss refills one key while the rest still hit.
 7. **CDN.** Clients want the same response. The origin is sized for misses, not for every client.
 8. **Queue.** A burst can wait in a queue. The worker cannot hold it.
 9. **Rate limit.** A spike more than triples the load. Refusing the excess keeps the accepted requests inside the SLO.

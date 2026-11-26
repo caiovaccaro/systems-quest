@@ -11,7 +11,7 @@ import { cssColor, honkStops } from "../levels/island";
 import { iconURL } from "../render/icons";
 import { Board } from "../render/Board";
 import { layoutAnswer } from "./answers";
-import { explain } from "./coach";
+import { explain, type CoachNote } from "./coach";
 import { loadCleared, saveCleared } from "./progress";
 import {
   hideModal,
@@ -59,6 +59,7 @@ export class Game {
   private trayDrag: { id: string; sx: number; sy: number; moved: boolean } | null = null;
   private sheet: "" | "palette" | "inspect" = "";
   private revealed = false;
+  private aside: { note: CoachNote; until: number } | null = null;
 
   constructor(app: HTMLElement) {
     this.ui = mountShell(app);
@@ -74,7 +75,7 @@ export class Game {
     window.addEventListener("resize", () => this.board.resize());
     window.visualViewport?.addEventListener("resize", () => this.board.resize());
     window.addEventListener("keydown", (e) => this.onKey(e));
-    window.addEventListener("pointermove", (e) => this.onMove(e));
+    window.addEventListener("pointermove", (e) => this.onMove(e), { passive: false });
     window.addEventListener("pointerup", (e) => this.onUp(e));
     this.ui.root.addEventListener("pointerdown", (e) => {
       sfx.unlock();
@@ -178,6 +179,7 @@ export class Game {
     }
     const tool = t.closest("[data-tool]")?.getAttribute("data-tool");
     if (tool) {
+      e.preventDefault();
       if (isCable(tool)) {
         sfx.tick();
         this.cableTool = this.cableTool === tool ? "" : tool;
@@ -193,6 +195,7 @@ export class Game {
       return;
     }
     if (t !== this.board.renderer.domElement) return;
+    e.preventDefault();
     const hit = this.board.pick(e.clientX, e.clientY);
     if (hit?.type === "node") {
       this.selected = hit.id;
@@ -220,6 +223,7 @@ export class Game {
   }
 
   private onMove(e: PointerEvent): void {
+    if (this.trayDrag || (this.pieceDrag && this.pieceDrag.moved)) e.preventDefault();
     if (this.trayDrag) {
       if (Math.hypot(e.clientX - this.trayDrag.sx, e.clientY - this.trayDrag.sy) > 6) {
         this.trayDrag.moved = true;
@@ -230,8 +234,7 @@ export class Game {
         this.ui.ghost.style.left = `${e.clientX}px`;
         this.ui.ghost.style.top = `${e.clientY}px`;
       }
-      const hit = this.board.pick(e.clientX, e.clientY);
-      this.board.setHoverTile(hit?.type === "tile" ? hit : null);
+      this.board.setHoverTile(null);
       return;
     }
     if (this.pieceDrag) {
@@ -244,17 +247,9 @@ export class Game {
         document.body.classList.add("dragging");
       }
       if (this.pieceDrag.moved) {
+        this.board.setHoverTile(null);
         const point = this.board.cursorOnBoard(e.clientX, e.clientY);
         if (point) this.board.dragTo(this.pieceDrag.id, point.x, point.z);
-        const near = this.board.nearestNode(e.clientX, e.clientY, this.pieceDrag.id);
-        const hit = this.board.pick(e.clientX, e.clientY);
-        const targetId = near ?? (hit?.type === "node" ? hit.id : null);
-        if (targetId) {
-          const other = this.nodes.find((n) => n.id === targetId);
-          this.board.setHoverTile(other ? { x: other.x, z: other.z } : null);
-        } else {
-          this.board.setHoverTile(this.board.dragCell(this.pieceDrag.id));
-        }
       }
       return;
     }
@@ -446,13 +441,15 @@ export class Game {
     if (!def.placeable) return;
     if (this.cost() + def.cost > this.level.budget) {
       sfx.no();
-      renderCoach(this.ui.coach, {
+      const left = this.level.budget - this.cost();
+      this.holdCoach({
         tone: "bad",
-        title: "That costs too much",
-        body: `This piece is $${def.cost} a month. You have $${this.level.budget - this.cost()} left of a $${this.level.budget} budget.`,
+        title: "Over budget",
+        body: `${def.name} is $${def.cost} a month. $${left} is left of $${this.level.budget}, so it was not placed. Remove something, or pick a cheaper piece. The price in red cannot fit.`,
       });
       return;
     }
+    this.aside = null;
     this.pushUndo();
     const node: PlacedNode = {
       id: nid(def.id),
@@ -610,8 +607,18 @@ export class Game {
     renderInspect(this.ui.inspect, node, view);
   }
 
+  private holdCoach(note: CoachNote): void {
+    this.aside = { note, until: performance.now() + 8000 };
+    renderCoach(this.ui.coach, note);
+  }
+
   private updateCoach(): void {
     if (!this.level) return;
+    if (this.aside && performance.now() < this.aside.until) {
+      renderCoach(this.ui.coach, this.aside.note);
+      return;
+    }
+    this.aside = null;
     renderCoach(
       this.ui.coach,
       explain({

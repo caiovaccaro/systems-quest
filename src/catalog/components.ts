@@ -240,14 +240,14 @@ export const COMPONENTS: ComponentDef[] = [
     config: [
       {
         key: "ttl",
-        label: "TTL",
+        label: "Expiry",
         type: "enum",
         value: "flush",
         options: [
-          { label: "Same expiry", value: "flush" },
-          { label: "Jittered expiry", value: "jitter" },
+          { label: "One expiry for every key", value: "flush" },
+          { label: "Jitter: each key expires on its own", value: "jitter" },
         ],
-        hint: "One shared expiry is a stampede: every client misses at the same moment.",
+        hint: "Jitter adds a small random offset to each key. One key misses and is refilled. A shared expiry drops every key at once, so every client misses together.",
       },
     ],
   },

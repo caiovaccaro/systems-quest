@@ -34,6 +34,16 @@ html, body {
 button, select, input { font-family: inherit; }
 canvas { display: block; width: 100%; height: 100%; }
 body.dragging { cursor: grabbing; }
+body.dragging, body.dragging * { user-select: none; }
+#ui, canvas, button, img { user-select: none; -webkit-user-drag: none; }
+body.dragging .tool:hover,
+body.dragging .btn:hover,
+body.dragging .card:hover {
+  border-color: transparent;
+  filter: none;
+  box-shadow: none;
+}
+body.dragging .tool.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 
 #ui { position: absolute; inset: 0; pointer-events: none; }
 #ui > * { pointer-events: auto; }
@@ -233,6 +243,8 @@ h1, h2, h3, .inspect .name, .coach b {
   margin-bottom: 6px;
 }
 .tool:hover { border-color: var(--line); }
+.tool.unaffordable { opacity: 0.72; }
+.tool.unaffordable small { color: var(--bad); }
 .tool.active {
   border-color: var(--accent);
   box-shadow: inset 3px 0 0 var(--accent);

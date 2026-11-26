@@ -19,6 +19,7 @@ interface Answer {
 const http = "http" as const;
 const sql = "sql" as const;
 const kafka = "kafka" as const;
+const redis = "redis" as const;
 
 function answer(pieces: Piece[], links: [string, string, LinkKind][]): Answer {
   return { pieces, links };
@@ -54,9 +55,9 @@ const ANSWERS: Record<string, Answer> = {
   l6: answer(
     [
       { key: "app", def: "booth" },
-      { key: "cache", def: "cache", cfg: { ttl: "jitter" } },
+      { key: "cache", def: "redisbox", cfg: { ttl: "jitter" } },
     ],
-    [["users", "app", http], ["app", "cache", sql]],
+    [["users", "app", http], ["app", "cache", redis]],
   ),
   l7: answer(
     [
