@@ -10,7 +10,7 @@ There are 39 lessons. The winning layouts are in the play, not in this file.
 2. **App and database.** Writes go through an application over HTTP and land in a database over SQL. A chatty query and a missing index show up as latency.
 3. **Vertical scale.** The arrival rate passes the small server. A larger server is the same service with more capacity, and it is still one machine.
 4. **Load balancing.** One app server saturates. A load balancer can spread the traffic. Sticky pins every request to the first backend.
-5. **Read-your-writes.** Clients write, then immediately read. A stale replica does not contain that write.
+5. **Read-your-writes.** Clients write to MySQL, then immediately read. A replica can serve that read. A stale one does not contain the write.
 6. **Cache stampede.** A shared expiry drops every key at once, so every client misses together.
 7. **CDN.** Clients want the same response. The origin is sized for misses, not for every client.
 8. **Queue.** A burst can wait in a queue. The worker cannot hold it.

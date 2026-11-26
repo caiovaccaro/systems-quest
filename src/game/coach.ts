@@ -76,6 +76,28 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
       "The read replica is serving a stale copy. Turn on read-your-writes, or the client that just saved will not see its own write.",
     );
   }
+  if (level.palette.some((id) => getComponent(id).config.some((field) => field.key === "freshness"))) {
+    const callers = new Set<string>();
+    for (const link of links) {
+      if (link.kind !== "sql" && link.kind !== "redis") continue;
+      const store = nodes.find((n) => n.id === link.to);
+      if (store && getComponent(store.defId).role === "store") callers.add(link.from);
+    }
+    for (const from of callers) {
+      const stores = links
+        .filter((link) => link.from === from && (link.kind === "sql" || link.kind === "redis"))
+        .map((link) => nodes.find((n) => n.id === link.to))
+        .filter((n): n is PlacedNode => !!n && getComponent(n.defId).role === "store");
+      const replica = stores.some((n) => "freshness" in n.config);
+      const primary = stores.some((n) => !("freshness" in n.config));
+      if (replica && !primary) {
+        problems.push("The read replica copies a primary. Cable MySQL beside it, or it has nothing current to serve.");
+      }
+      if (primary && !replica) {
+        problems.push("MySQL is the primary. Place the read replica and cable it too. Read-your-writes is a setting on the replica.");
+      }
+    }
+  }
   if (nodes.some((n) => n.config.ttl === "flush")) {
     problems.push(
       "Every cache entry expires at the same time. That is a stampede. Jitter the TTLs.",

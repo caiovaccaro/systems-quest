@@ -848,9 +848,10 @@ export class Simulation {
       if (family > 0) return family;
       const cfg = node.placed.config;
       if (cfg.freshness === "stale") return 0.4;
+      if (cfg.freshness === "current") return this.hasPrimary(node) ? 0.012 : 0.4;
       if (cfg.sync === "dual") return 0.36;
       if (cfg.ttl === "flush" && this.trafficMult > 1.15) return 0.32;
-      if (cfg.freshness === "current" || cfg.sync === "outbox" || cfg.ttl === "jitter") return 0.012;
+      if (cfg.sync === "outbox" || cfg.ttl === "jitter") return 0.012;
       return this.isIndexed(node) ? 0.012 : 0.17;
     }
     return def.baseLatencyMs / 1000;
@@ -862,8 +863,47 @@ export class Simulation {
     const allowed = lessonFits(this.level);
     if (allowed.length === 0) return 0;
     if (!allowed.includes(def.fit)) return 0.48;
-    if (!this.level.palette.includes(def.id) && missingLessonKnob(def, this.level)) return 0.42;
+    if (!this.level.palette.includes(def.id) && missingLessonKnob(def, this.level) && !this.siblingCoversKnob(node)) {
+      return 0.42;
+    }
     return 0;
+  }
+
+  /** Other stores reached by the same caller. A primary beside a replica is one of these. */
+  private peerStores(node: RuntimeNode): RuntimeNode[] {
+    const peers: RuntimeNode[] = [];
+    for (const links of this.outgoing.values()) {
+      const here = links.some(
+        (link) => link.to === node.placed.id && (link.kind === "sql" || link.kind === "redis"),
+      );
+      if (!here) continue;
+      for (const link of links) {
+        if (link.kind !== "sql" && link.kind !== "redis") continue;
+        if (link.to === node.placed.id) continue;
+        const other = this.nodes.get(link.to);
+        if (other && getComponent(other.defId).role === "store") peers.push(other);
+      }
+    }
+    return peers;
+  }
+
+  private hasPrimary(node: RuntimeNode): boolean {
+    return this.peerStores(node).some((peer) => !("freshness" in peer.placed.config));
+  }
+
+  private siblingCoversKnob(node: RuntimeNode): boolean {
+    const needed = new Set<string>();
+    for (const id of this.level.palette) {
+      const lesson = getComponent(id);
+      if (lesson.role !== "store") continue;
+      for (const field of lesson.config) needed.add(field.key);
+    }
+    if (needed.size === 0) return false;
+    const peers = this.peerStores(node);
+    for (const key of needed) {
+      if (!peers.some((peer) => key in peer.placed.config)) return false;
+    }
+    return true;
   }
 
   private isIndexed(node: RuntimeNode): boolean {

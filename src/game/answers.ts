@@ -46,9 +46,10 @@ const ANSWERS: Record<string, Answer> = {
   l5: answer(
     [
       { key: "app", def: "booth" },
-      { key: "db", def: "echo", cfg: { freshness: "current" } },
+      { key: "primary", def: "mysql", cfg: { indexed: true } },
+      { key: "replica", def: "echo", cfg: { freshness: "current" } },
     ],
-    [["users", "app", http], ["app", "db", sql]],
+    [["users", "app", http], ["app", "primary", sql], ["app", "replica", sql]],
   ),
   l6: answer(
     [

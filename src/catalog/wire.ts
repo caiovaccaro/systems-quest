@@ -46,10 +46,14 @@ export function offeredPieces(level: LevelDef): ComponentDef[] {
     ids.push(id);
   };
   for (const id of level.palette) add(id);
+  const lessonNames = new Set(level.palette.map((id) => getComponent(id).name));
   const extras = TOOLBOX.filter((item) => item.minLevel <= level.num).sort(
     (a, b) => a.minLevel - b.minLevel || a.name.localeCompare(b.name),
   );
-  for (const item of extras) add(item.id);
+  for (const item of extras) {
+    if (lessonNames.has(item.name)) continue;
+    add(item.id);
+  }
   return ids.map((id) => getComponent(id));
 }
 
