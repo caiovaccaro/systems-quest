@@ -100,8 +100,33 @@ function settingProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): s
   }
   if (nodes.some((n) => n.config.ttl === "flush")) {
     problems.push(
-      "Every key expires at the same moment. That is a stampede: every client misses together and the application does the whole read. Set Expiry to jitter so each key expires on its own. A miss then refills one key, and the others still hit.",
+      "Every Redis key expires at the same moment. The spike is a stampede: every client misses, and MySQL takes the full QPS. Set Expiry to jitter so each key expires on its own. A miss then refills one key from MySQL, and the others still hit.",
     );
+  }
+  if (level.palette.some((id) => getComponent(id).config.some((field) => field.key === "ttl"))) {
+    const callers = new Set<string>();
+    for (const link of links) {
+      if (link.kind !== "sql" && link.kind !== "redis") continue;
+      callers.add(link.from);
+    }
+    for (const from of callers) {
+      const stores = links
+        .filter((link) => link.from === from && (link.kind === "sql" || link.kind === "redis"))
+        .map((link) => nodes.find((n) => n.id === link.to))
+        .filter((n): n is PlacedNode => !!n && getComponent(n.defId).role === "store");
+      const cache = stores.some((n) => "ttl" in n.config);
+      const origin = stores.some((n) => !("ttl" in n.config));
+      if (cache && !origin) {
+        problems.push(
+          "Redis has nothing behind it. A miss has to read MySQL and write that answer back. Cable the database.",
+        );
+      }
+      if (origin && !cache) {
+        problems.push(
+          "Every read is hitting MySQL. Put Redis in front of it. A hit stops at Redis. A miss reads MySQL and fills the key.",
+        );
+      }
+    }
   }
   if (nodes.some((n) => n.defId === "cdn" && n.config.cache === "none")) {
     problems.push(
@@ -423,9 +448,16 @@ function choiceProblems(level: LevelDef, nodes: PlacedNode[], links: Link[]): st
       continue;
     }
     if (def.role === "store" && def.fit && fits.length > 0 && !fits.includes(def.fit)) {
-      push(
-        `${def.name} is a ${fitName(def.fit)}. This lesson's data fits a ${fits.map(fitName).join(" or ")}. The mismatch makes every lookup slow.`,
-      );
+      const peers = links
+        .filter((other) => other.from === link.from && other.to !== to.id && (other.kind === "sql" || other.kind === "redis"))
+        .map((other) => nodes.find((n) => n.id === other.to))
+        .filter((n): n is PlacedNode => !!n);
+      const refill = !("ttl" in to.config) && peers.some((peer) => "ttl" in peer.config);
+      if (!refill) {
+        push(
+          `${def.name} is a ${fitName(def.fit)}. This lesson's data fits a ${fits.map(fitName).join(" or ")}. The mismatch makes every lookup slow.`,
+        );
+      }
     }
   }
   return problems;

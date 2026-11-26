@@ -42,6 +42,8 @@ interface Req {
   fanStores: boolean;
   /** Service calls finished; databases still have to be asked. */
   storesDone: boolean;
+  /** This read missed the cache while every key expired, so the database takes the herd. */
+  stampede: boolean;
   waitLimit: number;
   holding: boolean;
   returning: boolean;
@@ -222,6 +224,7 @@ export class Simulation {
       join: false,
       fanStores: false,
       storesDone: false,
+      stampede: false,
       waitLimit: WAIT_TIMEOUT,
       holding: false,
       returning: false,
@@ -543,10 +546,26 @@ export class Simulation {
       }
       return;
     }
+    const routed = this.routeCache(req, stores);
+    if (routed === "empty") {
+      this.flags.nostore += 1;
+      this.fail(req, node, "nostore");
+      return;
+    }
+    if (routed) {
+      req.phase = "child";
+      this.parentOf.set(req.id, req);
+      req.fanStores = routed.length > 1;
+      req.pending = [];
+      req.qLeft = routed.length;
+      for (const link of routed) this.spawnStore(req, link);
+      return;
+    }
+    const chosen = stores;
     const nPlus = node.placed.config.query === "nplusone";
     if (nPlus) this.flags.n1 = true;
     const shard = node.placed.config.shard;
-    const many = stores.length > 1 && shard !== "celebrity" && shard !== "even" && !nPlus;
+    const many = chosen.length > 1 && shard !== "celebrity" && shard !== "even" && !nPlus;
     const records = String(node.placed.config.records ?? "all");
     if (many && records === "primary" && this.level.num >= 10) {
       this.flags.unwired += 1;
@@ -564,20 +583,55 @@ export class Simulation {
     }
     if (records === "chain") {
       req.fanStores = false;
-      req.qLeft = stores.length;
-      req.pending = stores.slice(1);
-      this.spawnStore(req, stores[0]!);
+      req.qLeft = chosen.length;
+      req.pending = chosen.slice(1);
+      this.spawnStore(req, chosen[0]!);
       return;
     }
     req.fanStores = true;
     req.pending = [];
-    req.qLeft = stores.length;
-    for (const link of stores) this.spawnStore(req, link);
+    req.qLeft = chosen.length;
+    for (const link of chosen) this.spawnStore(req, link);
+  }
+
+  /**
+   * Cache-aside, only on a lesson that packed a TTL cache.
+   * A hit asks the cache. A miss refills from the database. "empty" means the cache has nothing behind it.
+   */
+  private routeCache(
+    req: Req,
+    stores: { to: string; kind: LinkKind }[],
+  ): { to: string; kind: LinkKind }[] | "empty" | null {
+    const wantsCache = this.level.palette.some((id) => getComponent(id).config.some((field) => field.key === "ttl"));
+    if (!wantsCache) return null;
+    const caches = stores.filter((link) => this.storeHas(link, "ttl"));
+    const origins = stores.filter((link) => !this.storeHas(link, "ttl"));
+    if (caches.length === 0) {
+      if (origins.length > 0 && this.trafficMult > 1.15) req.stampede = true;
+      return null;
+    }
+    if (origins.length === 0) return "empty";
+    const flush = caches.some((link) => this.storeConfig(link, "ttl") === "flush");
+    const stampede = flush && this.trafficMult > 1.15;
+    const hitRate = flush ? (stampede ? 0 : 0.9) : 0.98;
+    if (this.rng.next() < hitRate) return caches;
+    if (stampede) req.stampede = true;
+    return origins;
+  }
+
+  private storeHas(link: { to: string }, key: string): boolean {
+    const store = this.nodes.get(link.to);
+    return !!store && key in store.placed.config;
+  }
+
+  private storeConfig(link: { to: string }, key: string): string | number | boolean | undefined {
+    return this.nodes.get(link.to)?.placed.config[key];
   }
 
   private spawnStore(parent: Req, link: { to: string; kind: LinkKind }): void {
     const q = this.makeReq("query", parent.atId, link.to, parent.id, link.kind);
     q.history = [parent.atId];
+    q.stampede = parent.stampede;
     this.reqs.push(q);
   }
 
@@ -839,7 +893,7 @@ export class Simulation {
     return 0;
   }
 
-  private procTime(node: RuntimeNode, _req: Req): number {
+  private procTime(node: RuntimeNode, req: Req): number {
     const extra = this.extraDelay(node);
     if (extra > 0) return extra;
     const def = getComponent(node.defId);
@@ -852,6 +906,7 @@ export class Simulation {
       if (cfg.sync === "dual") return 0.36;
       if (cfg.ttl === "flush" && this.trafficMult > 1.15) return 0.32;
       if (cfg.sync === "outbox" || cfg.ttl === "jitter") return 0.012;
+      if (req.stampede) return 0.5;
       return this.isIndexed(node) ? 0.012 : 0.17;
     }
     return def.baseLatencyMs / 1000;
@@ -862,11 +917,20 @@ export class Simulation {
     if (!def.fit) return 0;
     const allowed = lessonFits(this.level);
     if (allowed.length === 0) return 0;
-    if (!allowed.includes(def.fit)) return 0.48;
+    if (!allowed.includes(def.fit)) {
+      if (this.cacheOrigin(node)) return 0;
+      return 0.48;
+    }
     if (!this.level.palette.includes(def.id) && missingLessonKnob(def, this.level) && !this.siblingCoversKnob(node)) {
       return 0.42;
     }
     return 0;
+  }
+
+  /** A database cabled beside a TTL cache is the refill, not a substitute for the cache. */
+  private cacheOrigin(node: RuntimeNode): boolean {
+    if ("ttl" in node.placed.config) return false;
+    return this.peerStores(node).some((peer) => "ttl" in peer.placed.config);
   }
 
   /** Other stores reached by the same caller. A primary beside a replica is one of these. */

@@ -56,8 +56,13 @@ const ANSWERS: Record<string, Answer> = {
     [
       { key: "app", def: "booth" },
       { key: "cache", def: "redisbox", cfg: { ttl: "jitter" } },
+      { key: "db", def: "mysql", cfg: { indexed: true } },
     ],
-    [["users", "app", http], ["app", "cache", redis]],
+    [
+      ["users", "app", http],
+      ["app", "cache", redis],
+      ["app", "db", sql],
+    ],
   ),
   l7: answer(
     [
